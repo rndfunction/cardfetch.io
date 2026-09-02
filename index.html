@@ -3,97 +3,220 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Card Location Lookup </title>
+    <title>Card Location Lookup</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     
     <style>
-        /* [Your existing styles...] */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
         
-        .secure-section {
-            background: #f0fdf4;
-            padding: 15px;
-            border-radius: 8px;
-            border: 1px solid #22c55e;
-            margin-top: 15px;
-        }
-        .secure-section .row {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            align-items: center;
-        }
-        .secure-section input, .secure-section textarea {
-            flex: 1;
-            min-width: 200px;
-            padding: 10px 15px;
-            border: 2px solid #e5e7eb;
-            border-radius: 8px;
-            font-size: 14px;
-            font-family: monospace;
-        }
-        .secure-section input:focus, .secure-section textarea:focus {
-            outline: none;
-            border-color: #6366f1;
-        }
-        .secure-section textarea {
-            min-height: 80px;
-            resize: vertical;
-        }
-        .secure-section .help-text {
-            font-size: 13px;
-            color: #166534;
-            margin-top: 8px;
-            line-height: 1.6;
-        }
-        .secure-section .help-text code {
-            background: #dcfce7;
-            padding: 1px 6px;
-            border-radius: 4px;
-            font-size: 12px;
-        }
-        .status-badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-        .status-badge.success { background: #dcfce7; color: #166534; }
-        .status-badge.loading { background: #fef3c7; color: #92400e; }
-        .status-badge.error { background: #fee2e2; color: #991b1b; }
+        .header { background: linear-gradient(135deg, #1a1a2e, #16213e); color: white; padding: 30px; border-radius: 12px; margin-bottom: 30px; }
+        .header h1 { font-size: 2rem; margin-bottom: 10px; }
+        .header p { opacity: 0.8; }
         
-        .sheet-loaded {
-            background: #f0fdf4;
-            border: 2px solid #22c55e;
-            border-radius: 8px;
-            padding: 10px 15px;
-            margin: 5px 0;
+        .card { background: white; border-radius: 12px; padding: 25px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); margin-bottom: 20px; }
+        
+        .upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+        .upload-zone { border: 2px dashed #d1d5db; border-radius: 10px; padding: 30px; text-align: center; cursor: pointer; transition: all 0.3s ease; background: #fafafa; }
+        .upload-zone:hover { border-color: #6366f1; background: #f8f7ff; }
+        .upload-zone.has-file { border-color: #22c55e; background: #f0fdf4; }
+        .upload-zone input[type="file"] { display: none; }
+        .upload-icon { font-size: 48px; margin-bottom: 10px; }
+        .file-name { font-weight: 600; color: #1a1a2e; margin-top: 10px; }
+        .file-details { font-size: 0.8rem; color: #6b7280; }
+        
+        .btn { padding: 12px 30px; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.3s ease; }
+        .btn-primary { background: #6366f1; color: white; }
+        .btn-primary:hover { background: #4f46e5; }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-success { background: #22c55e; color: white; }
+        .btn-success:hover { background: #16a34a; }
+        .btn-info { background: #0ea5e9; color: white; }
+        .btn-info:hover { background: #0284c7; }
+        .btn-secondary { background: #6b7280; color: white; }
+        .btn-secondary:hover { background: #4b5563; }
+        .btn-warning { background: #f59e0b; color: white; }
+        .btn-warning:hover { background: #d97706; }
+        .btn-print { background: #8b5cf6; color: white; }
+        .btn-print:hover { background: #7c3aed; }
+        .btn-danger { background: #ef4444; color: white; }
+        .btn-danger:hover { background: #dc2626; }
+        
+        .results-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin: 20px 0; }
+        .stat-box { background: white; padding: 20px; border-radius: 10px; text-align: center; border: 1px solid #e5e7eb; }
+        .stat-number { font-size: 2.5rem; font-weight: 700; }
+        .stat-number.green { color: #22c55e; }
+        .stat-number.red { color: #ef4444; }
+        .stat-number.blue { color: #6366f1; }
+        .stat-number.orange { color: #f59e0b; }
+        .stat-number.purple { color: #8b5cf6; }
+        .stat-label { color: #6b7280; font-size: 0.9rem; }
+        
+        .table-wrap { overflow-x: auto; margin-top: 20px; border-radius: 8px; border: 1px solid #e5e7eb; max-height: 500px; overflow-y: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        thead { background: #f8fafc; border-bottom: 2px solid #e5e7eb; position: sticky; top: 0; z-index: 10; }
+        th { padding: 12px 15px; text-align: left; font-weight: 600; background: #f8fafc; white-space: nowrap; }
+        td { padding: 10px 15px; border-bottom: 1px solid #f1f3f5; vertical-align: top; }
+        tr:hover { background: #f8fafc; }
+        
+        .found { background: #dcfce7; color: #166534; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
+        .notfound { background: #fee2e2; color: #991b1b; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
+        .location-badge { background: #dbeafe; color: #1e40af; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; display: inline-block; margin: 2px 0; }
+        .location-badge-diff { background: #f3e8ff; color: #6d28d9; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; display: inline-block; margin: 2px 0; }
+        .multiple-locations { background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 500; display: inline-block; margin-left: 5px; }
+        .qty-warning { background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; display: inline-block; }
+        .qty-ok { background: #dcfce7; color: #166534; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; display: inline-block; }
+        .cleaned-badge { background: #f3e8ff; color: #6d28d9; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 500; display: inline-block; }
+        .location-list { display: flex; flex-direction: column; gap: 3px; }
+        .location-item { font-size: 13px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .qty-badge { background: #e5e7eb; padding: 0 8px; border-radius: 10px; font-size: 11px; color: #4b5563; }
+        .cond-badge { font-size: 11px; color: #6b7280; }
+        
+        .loading { display: none; text-align: center; padding: 40px; }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #6366f1; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .hidden { display: none !important; }
+        
+        .toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin: 15px 0; align-items: center; }
+        .search-box { flex: 1; min-width: 200px; padding: 10px 15px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px; }
+        .search-box:focus { outline: none; border-color: #6366f1; }
+        .select-box { min-width: 150px; padding: 10px 15px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px; background: white; cursor: pointer; }
+        
+        .debug-box { background: #1a1a2e; color: #00ff00; padding: 15px; border-radius: 8px; font-family: 'Courier New', monospace; font-size: 12px; max-height: 200px; overflow-y: auto; margin-top: 15px; white-space: pre-wrap; }
+        .debug-box .error { color: #ff4444; }
+        .debug-box .success { color: #44ff44; }
+        .debug-box .info { color: #44aaff; }
+        .debug-box .warn { color: #ffaa44; }
+        
+        .info-note { background: #f0fdf4; padding: 12px 15px; border-radius: 8px; border-left: 4px solid #22c55e; margin: 10px 0; font-size: 14px; color: #166534; }
+        
+        @media (max-width: 768px) {
+            .upload-grid { grid-template-columns: 1fr; }
         }
+
+        /* ============================================================
+           PRINT STYLES
+           ============================================================ */
+        
+        @media print {
+            body { background: white; padding: 0; margin: 0; }
+            .no-print { display: none !important; }
+            .container { max-width: 100%; padding: 20px; }
+            .header { background: #1a1a2e !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            .card { box-shadow: none !important; border: 1px solid #ddd; break-inside: avoid; }
+            .table-wrap { max-height: none !important; overflow: visible !important; }
+            .found, .notfound, .location-badge, .qty-warning, .qty-ok, .cleaned-badge { 
+                -webkit-print-color-adjust: exact !important; 
+                print-color-adjust: exact !important; 
+            }
+            .stats-grid { break-inside: avoid; }
+            .stat-box { border: 1px solid #ddd; }
+            
+            #printContent { display: block !important; }
+            #mainContent { display: none !important; }
+            .print-only { display: block !important; }
+            
+            .print-picking-item { 
+                padding: 8px 12px; 
+                border-bottom: 1px solid #eee;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            .print-picking-item .card-name { font-weight: 600; }
+            .print-picking-item .card-details { color: #555; font-size: 13px; }
+            .print-picking-item .card-location { 
+                background: #dbeafe; 
+                padding: 2px 12px; 
+                border-radius: 12px; 
+                font-weight: 500;
+                font-size: 13px;
+            }
+            .print-picking-item .not-found-label {
+                background: #fee2e2;
+                color: #991b1b;
+                padding: 2px 12px;
+                border-radius: 12px;
+                font-weight: 500;
+                font-size: 12px;
+            }
+            .print-box-header {
+                background: #f0f2f5;
+                padding: 10px 15px;
+                border-radius: 8px;
+                margin: 15px 0 10px 0;
+                font-weight: 700;
+                font-size: 18px;
+                border-left: 4px solid #6366f1;
+            }
+            .print-box-header.not-found-header {
+                border-left-color: #ef4444;
+                background: #fef2f2;
+            }
+            .print-summary {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 15px;
+                margin: 20px 0;
+            }
+            .print-summary-item {
+                text-align: center;
+                padding: 15px;
+                border: 1px solid #ddd;
+                border-radius: 8px;
+            }
+            .print-summary-item .number {
+                font-size: 28px;
+                font-weight: 700;
+            }
+            .print-summary-item .label {
+                color: #666;
+                font-size: 13px;
+                margin-top: 5px;
+            }
+            .print-header {
+                text-align: center;
+                margin-bottom: 20px;
+            }
+            .print-header h1 { font-size: 24px; margin-bottom: 5px; }
+            .print-header .subtitle { color: #666; font-size: 14px; }
+            .print-footer {
+                margin-top: 30px;
+                text-align: center;
+                font-size: 12px;
+                color: #999;
+                border-top: 1px solid #eee;
+                padding-top: 15px;
+            }
+            .location-group-print { margin-bottom: 5px; }
+            .print-not-found-section {
+                margin-top: 20px;
+                border-top: 2px dashed #ef4444;
+                padding-top: 15px;
+            }
+            .print-not-found-section .print-box-header {
+                background: #fef2f2;
+                border-left-color: #ef4444;
+            }
+        }
+        
+        #printContent { display: none; }
+        .print-only { display: none; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header no-print">
             <h1>🔍 Card Location Lookup</h1>
-            <p>Secure Google Sheets Integration - No Publishing Required</p>
+            <p>Match Pull Sheet cards to Inventory locations</p>
         </div>
         
-        <div class="card no-print">
-            <h3 style="margin-bottom: 15px;">📤 Load Inventory Data</h3>
-            
-            <!-- Tabs -->
-            <div style="display: flex; gap: 5px; margin-bottom: 15px; border-bottom: 2px solid #e5e7eb;">
-                <button class="btn btn-secondary tab-btn active" data-tab="upload" style="border-radius: 8px 8px 0 0; padding: 10px 20px; font-size: 14px; background: #6366f1; color: white; border: none;">
-                    📁 Upload CSV
-                </button>
-                <button class="btn btn-secondary tab-btn" data-tab="secure" style="border-radius: 8px 8px 0 0; padding: 10px 20px; font-size: 14px; background: transparent; color: #6b7280; border: none;">
-                    🔐 Secure Google Sheets
-                </button>
-            </div>
-            
-            <!-- Tab 1: CSV Upload -->
-            <div id="tab-upload" class="tab-content">
+        <!-- Main Content (hidden when printing) -->
+        <div id="mainContent">
+            <div class="card no-print">
                 <div class="upload-grid">
                     <div class="upload-zone" id="inventoryZone">
                         <div class="upload-icon">📋</div>
@@ -109,271 +232,969 @@
                         <input type="file" id="pullsheetFile" accept=".csv">
                     </div>
                 </div>
+                
+                <div style="text-align: center; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+                    <button class="btn btn-primary" id="processBtn" disabled>🔍 Look Up Locations</button>
+                    <button class="btn btn-secondary" id="clearBtn">🗑️ Clear</button>
+                    <button class="btn btn-info" id="sampleBtn">📝 Load Sample</button>
+                    <button class="btn btn-secondary" id="debugBtn" style="font-size:12px;padding:8px 15px;">🔍 Show Debug</button>
+                </div>
+                
+                <div class="loading" id="loading">
+                    <div class="spinner"></div>
+                    <p>Looking up locations...</p>
+                </div>
+                
+                <div id="debugBox" class="debug-box" style="display:none;"></div>
             </div>
             
-            <!-- Tab 2: Secure Google Sheets -->
-            <div id="tab-secure" class="tab-content" style="display: none;">
-                <div class="secure-section">
-                    <h4 style="color: #166534; margin-bottom: 10px;">🔐 Securely Connect to Google Sheets</h4>
-                    <p style="font-size: 14px; color: #4b5563; margin-bottom: 15px;">
-                        Your data stays private - no publishing required! Your JSON credentials are stored only in your browser.
-                    </p>
-                    
-                    <div style="margin-bottom: 15px;">
-                        <label style="font-weight: 600; font-size: 14px; display: block; margin-bottom: 5px;">1. Paste your Service Account JSON credentials:</label>
-                        <textarea id="serviceAccountJson" placeholder='Paste the JSON from your Google Cloud Service Account key file here...'></textarea>
-                        <div class="help-text">📥 Found in the JSON file you downloaded when creating the Service Account</div>
+            <div id="resultsSection" class="hidden">
+                <div class="info-note no-print">
+                    💡 <strong>Available Qty</strong> comes from your Inventory's <strong>Add to Quantity</strong> column 
+                    (fallback: <strong>Total Quantity</strong> if Add to Quantity isn't available).
+                    <br>📍 If a card is in <strong>multiple locations</strong>, all will be shown with their quantities.
+                    <br>🖨️ The <strong>Print Picking List</strong> shows ALL items - found AND not found.
+                </div>
+                
+                <div class="results-stats no-print" id="statsRow"></div>
+                
+                <div class="card">
+                    <div class="toolbar no-print">
+                        <input type="text" class="search-box" id="searchBox" placeholder="🔍 Filter results...">
+                        <select class="select-box" id="statusFilter">
+                            <option value="all">All</option>
+                            <option value="Found">✅ Found</option>
+                            <option value="Not Found">❌ Not Found</option>
+                        </select>
+                        <select class="select-box" id="qtyFilter">
+                            <option value="all">All Quantities</option>
+                            <option value="low">⚠️ Low Stock</option>
+                            <option value="ok">✅ Enough Stock</option>
+                        </select>
+                        <button class="btn btn-success" id="downloadBtn">📊 Excel</button>
+                        <button class="btn btn-print" id="printBtn">🖨️ Print Picking List</button>
                     </div>
                     
-                    <div style="margin-bottom: 15px;">
-                        <label style="font-weight: 600; font-size: 14px; display: block; margin-bottom: 5px;">2. Enter your Google Sheet ID:</label>
-                        <div class="row">
-                            <input type="text" id="secureInventorySheetId" placeholder="Sheet ID for Inventory...">
-                            <input type="text" id="secureInventorySheetName" placeholder="Sheet Name" style="flex: 0.5; min-width: 120px;" value="Sheet1">
-                            <button class="btn btn-info" id="secureLoadInventoryBtn">📥 Load Inventory</button>
-                        </div>
-                        <div class="help-text">💡 Sheet ID is in the URL: <code>https://docs.google.com/spreadsheets/d/&lt;SHEET_ID&gt;/edit</code></div>
-                        <div id="secureInventoryStatus" style="margin-top: 8px;"></div>
-                    </div>
-                    
-                    <div style="margin-bottom: 15px;">
-                        <label style="font-weight: 600; font-size: 14px; display: block; margin-bottom: 5px;">3. Enter your Pull Sheet ID:</label>
-                        <div class="row">
-                            <input type="text" id="securePullSheetId" placeholder="Sheet ID for Pull Sheet...">
-                            <input type="text" id="securePullSheetName" placeholder="Sheet Name" style="flex: 0.5; min-width: 120px;" value="Sheet1">
-                            <button class="btn btn-info" id="secureLoadPullSheetBtn">📥 Load Pull Sheet</button>
-                        </div>
-                        <div id="securePullStatus" style="margin-top: 8px;"></div>
-                    </div>
-                    
-                    <div style="font-size: 13px; color: #6b7280; background: #f8fafc; padding: 10px; border-radius: 8px;">
-                        🔐 <strong>Security:</strong> Your credentials never leave your browser. The sheet data is fetched directly from Google via their API.
+                    <div class="table-wrap" id="tableContainer"></div>
+                    <div style="margin-top: 10px; color: #6b7280; font-size: 14px; display: flex; justify-content: space-between; flex-wrap: wrap;" class="no-print">
+                        <span id="rowCount">0 items</span>
+                        <span id="stockSummary"></span>
                     </div>
                 </div>
             </div>
-            
-            <div style="text-align: center; margin-top: 20px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
-                <button class="btn btn-primary" id="processBtn" disabled>🔍 Look Up Locations</button>
-                <button class="btn btn-secondary" id="clearBtn">🗑️ Clear</button>
-                <button class="btn btn-info" id="sampleBtn">📝 Load Sample</button>
-                <button class="btn btn-secondary" id="debugBtn" style="font-size:12px;padding:8px 15px;">🔍 Show Debug</button>
-            </div>
-            
-            <div class="loading" id="loading">
-                <div class="spinner"></div>
-                <p>Looking up locations...</p>
-            </div>
-            
-            <div id="debugBox" class="debug-box" style="display:none;"></div>
         </div>
         
-        <!-- [Rest of your results and print sections...] -->
-        <div id="resultsSection" class="hidden">
-            <!-- Same as before -->
-        </div>
-        
+        <!-- ============================================================
+             PRINT CONTENT - Shows ALL items (Found + Not Found)
+             ============================================================ -->
         <div id="printContent">
-            <!-- Same as before -->
+            <div class="print-header">
+                <h1>📦 Complete Order Fulfillment Worksheet</h1>
+                <div class="subtitle">Generated: <span id="printDate"></span></div>
+            </div>
+            
+            <div id="printSummary" class="print-summary"></div>
+            
+            <!-- Found items section -->
+            <div id="printFoundItems">
+                <h2 style="margin-top: 20px; margin-bottom: 10px; color: #22c55e;">✅ Found Items</h2>
+                <div id="printPickingList"></div>
+            </div>
+            
+            <!-- Not Found items section -->
+            <div id="printNotFoundItems" class="print-not-found-section">
+                <h2 style="margin-top: 20px; margin-bottom: 10px; color: #ef4444;">❌ Items Not Found in Inventory</h2>
+                <div id="printNotFoundList"></div>
+            </div>
+            
+            <div class="print-footer">
+                Generated by Card Location Lookup Tool • Page 1 of 1
+            </div>
         </div>
     </div>
     
     <script>
         // ============================================================
-        // SECURE GOOGLE SHEETS INTEGRATION (No Publishing Required)
+        // ALL JAVASCRIPT
         // ============================================================
         
-        // Tab switching
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                document.querySelectorAll('.tab-btn').forEach(b => {
-                    b.style.background = 'transparent';
-                    b.style.color = '#6b7280';
-                });
-                this.style.background = '#6366f1';
-                this.style.color = 'white';
-                
-                document.querySelectorAll('.tab-content').forEach(content => {
-                    content.style.display = 'none';
-                });
-                document.getElementById(`tab-${this.dataset.tab}`).style.display = 'block';
-            });
+        let debugLines = [];
+        
+        function debug(msg, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            debugLines.push({ msg, type });
+            
+            const box = document.getElementById('debugBox');
+            if (box && box.style.display !== 'none') {
+                const colors = { error: '#ff4444', success: '#44ff44', info: '#44aaff', warn: '#ffaa44' };
+                const line = document.createElement('div');
+                line.style.color = colors[type] || '#ffffff';
+                line.textContent = `[${timestamp}] ${msg}`;
+                box.appendChild(line);
+                box.scrollTop = box.scrollHeight;
+            }
+            console.log(`[${type}]`, msg);
+        }
+        
+        document.getElementById('debugBtn').addEventListener('click', function() {
+            const box = document.getElementById('debugBox');
+            if (box.style.display === 'none') {
+                box.style.display = 'block';
+                this.textContent = '🔍 Hide Debug';
+                box.innerHTML = '';
+                for (const line of debugLines) {
+                    const colors = { error: '#ff4444', success: '#44ff44', info: '#44aaff', warn: '#ffaa44' };
+                    const div = document.createElement('div');
+                    div.style.color = colors[line.type] || '#ffffff';
+                    div.textContent = line.msg;
+                    box.appendChild(div);
+                }
+            } else {
+                box.style.display = 'none';
+                this.textContent = '🔍 Show Debug';
+            }
         });
         
+        // ============================================================
+        // SIMPLE VLOOKUP ENGINE - FINDS ALL LOCATIONS
+        // ============================================================
         
-        async function loadFromSecureGoogleSheets(sheetId, sheetName, serviceAccountJson, statusElement) {
-            if (!serviceAccountJson) {
-                statusElement.innerHTML = '<span class="status-badge error">❌ Please paste your Service Account JSON credentials</span>';
-                return null;
+        class LookupEngine {
+            constructor() {
+                this.inventory = [];
+                this.pullSheet = [];
+                this.results = [];
             }
             
-            statusElement.innerHTML = '<span class="status-badge loading">⏳ Connecting to Google Sheets securely...</span>';
-            
-            try {
-                // Parse the service account credentials
-                let credentials;
-                try {
-                    credentials = JSON.parse(serviceAccountJson);
-                } catch (e) {
-                    throw new Error('Invalid JSON. Please paste the entire Service Account JSON file contents.');
-                }
-                
-                // Check required fields
-                if (!credentials.client_email || !credentials.private_key) {
-                    throw new Error('Missing client_email or private_key in JSON. Make sure you pasted the entire file.');
-                }
-                
-                // Get an access token using the service account
-                const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded'
-                    },
-                    body: new URLSearchParams({
-                        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-                        assertion: createJWT(credentials)
-                    })
-                });
-                
-                if (!tokenResponse.ok) {
-                    const errorText = await tokenResponse.text();
-                    throw new Error(`Token error: ${tokenResponse.status} - ${errorText}`);
-                }
-                
-                const tokenData = await tokenResponse.json();
-                const accessToken = tokenData.access_token;
-                
-                // Now fetch the sheet data
-                const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(sheetName)}`;
-                
-                const response = await fetch(url, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`
-                    }
-                });
-                
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    if (response.status === 404) {
-                        throw new Error('Sheet not found. Check your Sheet ID and make sure you shared it with the service account email.');
-                    } else if (response.status === 403) {
-                        throw new Error('Permission denied. Make sure you shared the sheet with: ' + credentials.client_email);
-                    }
-                    throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
-                }
-                
-                const data = await response.json();
-                
-                if (!data.values || data.values.length === 0) {
-                    throw new Error('No data found in sheet');
-                }
-                
-                const headers = data.values[0];
-                const rows = data.values.slice(1);
-                
-                const result = rows.map(row => {
-                    const obj = {};
-                    headers.forEach((header, i) => {
-                        obj[header] = row[i] || '';
+            parseCSV(file) {
+                return new Promise((resolve, reject) => {
+                    debug(`📄 Parsing: ${file.name} (${(file.size/1024).toFixed(1)} KB)`, 'info');
+                    
+                    Papa.parse(file, {
+                        header: true,
+                        skipEmptyLines: true,
+                        trimHeaders: true,
+                        transformHeader: (header) => header.trim(),
+                        dynamicTyping: false,
+                        skipInvalidLines: true,
+                        complete: (results) => {
+                            debug(`📊 Rows parsed: ${results.data.length}`, 'info');
+                            debug(`📋 Headers: ${results.meta.fields ? results.meta.fields.join(', ') : 'none'}`, 'info');
+                            
+                            if (results.errors.length > 0) {
+                                debug(`⚠️ ${results.errors.length} warnings: ${results.errors[0].message}`, 'warn');
+                            }
+                            
+                            const data = results.data.filter(row => {
+                                return Object.values(row).some(val => 
+                                    val && String(val).trim() !== ''
+                                );
+                            });
+                            
+                            debug(`✅ Cleaned rows: ${data.length}`, 'success');
+                            
+                            if (data.length > 0) {
+                                const sample = data[0];
+                                debug(`📝 Sample: ${JSON.stringify(sample).substring(0, 200)}...`, 'info');
+                            }
+                            
+                            resolve(data);
+                        },
+                        error: (error) => {
+                            debug(`❌ Error: ${error}`, 'error');
+                            reject(error);
+                        }
                     });
-                    return obj;
                 });
+            }
+            
+            async loadInventory(file) {
+                this.inventory = await this.parseCSV(file);
+                return this.inventory;
+            }
+            
+            async loadPullSheet(file) {
+                this.pullSheet = await this.parseCSV(file);
+                return this.pullSheet;
+            }
+            
+            findColumn(row, possibleNames) {
+                if (!row) return '';
+                for (const name of possibleNames) {
+                    if (row[name] !== undefined) return row[name];
+                    for (const key of Object.keys(row)) {
+                        if (key.toLowerCase() === name.toLowerCase()) {
+                            return row[key];
+                        }
+                    }
+                }
+                return '';
+            }
+            
+            cleanProductName(rawName) {
+                if (!rawName) return '';
                 
-                statusElement.innerHTML = `<span class="status-badge success">✅ Loaded ${result.length} rows securely from Google Sheets</span>`;
-                console.log('✅ Secure Google Sheets data loaded:', result.length, 'rows');
-                console.log('📋 Headers:', headers);
-                console.log('📝 Using service account:', credentials.client_email);
+                let name = String(rawName);
+                let cleaned = false;
+                
+                const delimiters = /[\|\*\_\t]+/;
+                const parts = name.split(delimiters);
+                
+                const vowelPattern = /[aeiou]/i;
+                const hexPattern = /^[0-9A-F\s\-]+$/i;
+                
+                let bestPart = '';
+                let bestScore = 0;
+                
+                for (const part of parts) {
+                    const trimmed = part.trim();
+                    if (trimmed.length < 3) continue;
+                    
+                    const isHex = hexPattern.test(trimmed) && !vowelPattern.test(trimmed);
+                    if (isHex) continue;
+                    
+                    let score = trimmed.length;
+                    if (trimmed.includes(' ')) score += 10;
+                    if (vowelPattern.test(trimmed)) score += 5;
+                    
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestPart = trimmed;
+                    }
+                }
+                
+                if (bestPart && bestPart.length > 0) {
+                    const spaceSplit = name.split(' ');
+                    let afterLastDelimiter = '';
+                    let foundCardPart = false;
+                    
+                    for (let i = 0; i < spaceSplit.length; i++) {
+                        const part = spaceSplit[i].trim();
+                        if (!part) continue;
+                        
+                        const looksLikeCard = !hexPattern.test(part) && vowelPattern.test(part);
+                        if (looksLikeCard && !foundCardPart) {
+                            foundCardPart = true;
+                            afterLastDelimiter = spaceSplit.slice(i).join(' ').trim();
+                            break;
+                        }
+                    }
+                    
+                    if (afterLastDelimiter && afterLastDelimiter.length > bestPart.length) {
+                        bestPart = afterLastDelimiter;
+                        cleaned = true;
+                    } else if (bestPart !== name) {
+                        cleaned = true;
+                    }
+                }
+                
+                if (!bestPart || bestPart.length < 3) {
+                    const words = name.split(/[\s\|]/);
+                    for (const word of words) {
+                        const trimmed = word.trim();
+                        if (trimmed.length > 2 && vowelPattern.test(trimmed) && !hexPattern.test(trimmed)) {
+                            bestPart = trimmed;
+                            cleaned = true;
+                            break;
+                        }
+                    }
+                }
+                
+                if (!bestPart || bestPart.length < 2) {
+                    return name.trim();
+                }
+                
+                let result = bestPart.trim();
+                result = result.replace(/\s+/g, ' ').trim();
+                
+                if (cleaned && result !== rawName) {
+                    debug(`🧹 Cleaned: "${rawName}" → "${result}"`, 'info');
+                }
                 
                 return result;
+            }
+            
+            getAvailableQuantity(item) {
+                let qty = this.findColumn(item, ['Add to Quantity', 'AddToQuantity', 'Add Quantity']);
+                if (qty && !isNaN(parseInt(qty))) {
+                    return parseInt(qty);
+                }
                 
-            } catch (error) {
-                console.error('Error loading from Google Sheets:', error);
-                statusElement.innerHTML = `<span class="status-badge error">❌ ${error.message}</span>`;
-                return null;
+                qty = this.findColumn(item, ['Total Quantity', 'TotalQuantity', 'Quantity', 'Qty']);
+                if (qty && !isNaN(parseInt(qty))) {
+                    return parseInt(qty);
+                }
+                
+                return 0;
+            }
+            
+            findAllLocations(rawProductName) {
+                if (!this.inventory || this.inventory.length === 0) return [];
+                
+                const searchName = this.cleanProductName(rawProductName)
+                    .toLowerCase().trim().replace(/\s+/g, ' ');
+                
+                if (!searchName || searchName.length < 2) {
+                    return [];
+                }
+                
+                const matches = [];
+                
+                for (const item of this.inventory) {
+                    const itemName = this.findColumn(item, ['Product Name', 'ProductName', 'Name', 'Card Name'])
+                        .toLowerCase().trim().replace(/\s+/g, ' ');
+                    
+                    let isMatch = false;
+                    
+                    if (itemName === searchName) {
+                        isMatch = true;
+                    }
+                    else if (itemName.includes(searchName) || searchName.includes(itemName)) {
+                        isMatch = true;
+                    }
+                    else {
+                        const cleanSearch = searchName.replace(/\([^)]*\)/g, '').trim();
+                        if (cleanSearch !== searchName && cleanSearch.length > 3) {
+                            if (itemName.includes(cleanSearch) || cleanSearch.includes(itemName)) {
+                                isMatch = true;
+                            }
+                        }
+                    }
+                    
+                    if (isMatch) {
+                        const location = this.findColumn(item, ['Where is it?', 'Location', 'Box Location']);
+                        const qty = this.getAvailableQuantity(item);
+                        const condition = this.findColumn(item, ['Condition', 'Cond']);
+                        const set = this.findColumn(item, ['Set Name', 'Set', 'SetName']);
+                        const rarity = this.findColumn(item, ['Rarity']);
+                        
+                        matches.push({
+                            location: location || 'Unknown',
+                            quantity: qty,
+                            condition: condition || '',
+                            set: set || '',
+                            rarity: rarity || '',
+                            inventoryName: this.findColumn(item, ['Product Name', 'ProductName', 'Name', 'Card Name']) || '',
+                            fullItem: item
+                        });
+                    }
+                }
+                
+                matches.sort((a, b) => {
+                    if (b.quantity !== a.quantity) return b.quantity - a.quantity;
+                    return a.location.localeCompare(b.location);
+                });
+                
+                return matches;
+            }
+            
+            process() {
+                debug(`🚀 Starting VLOOKUP (finding ALL locations)...`, 'info');
+                debug(`📊 Inventory: ${this.inventory.length} rows`, 'info');
+                debug(`📊 Pull Sheet: ${this.pullSheet.length} rows`, 'info');
+                
+                if (this.inventory.length === 0) {
+                    throw new Error('Inventory is empty');
+                }
+                if (this.pullSheet.length === 0) {
+                    throw new Error('Pull Sheet is empty');
+                }
+                
+                this.results = [];
+                let found = 0;
+                let cleanedCount = 0;
+                let usingAddToQty = 0;
+                let multipleLocations = 0;
+                
+                for (const item of this.pullSheet) {
+                    const rawName = this.findColumn(item, ['Product Name', 'ProductName', 'Name', 'Card Name']);
+                    const condition = this.findColumn(item, ['Condition', 'Cond']);
+                    const set = this.findColumn(item, ['Set', 'Set Name', 'SetName']);
+                    const qty = parseInt(this.findColumn(item, ['Quantity', 'Qty', 'Order Quantity'])) || 1;
+                    
+                    const cleanName = this.cleanProductName(rawName);
+                    if (cleanName !== rawName && cleanName) {
+                        cleanedCount++;
+                    }
+                    
+                    if (!cleanName || cleanName.length < 2) {
+                        debug(`⚠️ Empty after cleaning: "${rawName}"`, 'warn');
+                        const result = {
+                            'Pull Sheet Name': rawName,
+                            'Clean Name': '',
+                            'Condition': condition,
+                            'Set': set,
+                            'Quantity': qty,
+                            'Status': 'Not Found',
+                            'Locations': [],
+                            'Location Display': 'Not Found',
+                            'Inventory Name': '',
+                            'Available Qty': 0,
+                            'Stock Status': 'No Stock',
+                            'Qty Source': '',
+                            'Cleaned': false,
+                            'MultipleLocations': false
+                        };
+                        this.results.push(result);
+                        continue;
+                    }
+                    
+                    const matches = this.findAllLocations(cleanName);
+                    
+                    const result = {
+                        'Pull Sheet Name': rawName,
+                        'Clean Name': cleanName,
+                        'Condition': condition,
+                        'Set': set,
+                        'Quantity': qty,
+                        'Status': 'Not Found',
+                        'Locations': [],
+                        'Location Display': 'Not Found',
+                        'Inventory Name': '',
+                        'Available Qty': 0,
+                        'Stock Status': 'No Stock',
+                        'Qty Source': '',
+                        'Cleaned': cleanName !== rawName,
+                        'MultipleLocations': false
+                    };
+                    
+                    if (matches.length > 0) {
+                        result['Status'] = 'Found';
+                        result['Locations'] = matches;
+                        result['MultipleLocations'] = matches.length > 1;
+                        
+                        const locationParts = matches.map(m => {
+                            const qtyDisplay = m.quantity > 0 ? ` (${m.quantity})` : '';
+                            return `${m.location}${qtyDisplay}`;
+                        });
+                        result['Location Display'] = locationParts.join(' | ');
+                        
+                        const firstMatch = matches[0];
+                        result['Inventory Name'] = firstMatch.inventoryName || '';
+                        result['Available Qty'] = firstMatch.quantity || 0;
+                        
+                        const totalAvailable = matches.reduce((sum, m) => sum + m.quantity, 0);
+                        result['Stock Status'] = totalAvailable >= qty ? '✅ Enough' : '⚠️ Low Stock';
+                        result['Total Available'] = totalAvailable;
+                        
+                        const addQty = this.findColumn(firstMatch.fullItem, ['Add to Quantity', 'AddToQuantity', 'Add Quantity']);
+                        if (addQty && !isNaN(parseInt(addQty))) {
+                            result['Qty Source'] = 'Add to Quantity';
+                            usingAddToQty++;
+                        } else {
+                            result['Qty Source'] = 'Total Quantity';
+                        }
+                        
+                        found++;
+                        
+                        if (matches.length > 1) {
+                            multipleLocations++;
+                            debug(`📍 Multiple locations found for "${cleanName}": ${matches.length} locations`, 'info');
+                        }
+                    }
+                    
+                    this.results.push(result);
+                }
+                
+                debug(`🧹 Cleaned ${cleanedCount} product names`, 'info');
+                debug(`📍 Found ${multipleLocations} cards in multiple locations`, 'info');
+                debug(`📊 Using "Add to Quantity" for ${usingAddToQty} items`, 'info');
+                debug(`✅ Found ${found}/${this.results.length} items (${((found/this.results.length)*100).toFixed(1)}%)`, 'success');
+                return this.results;
+            }
+            
+            generateStats() {
+                if (!this.results || this.results.length === 0) return null;
+                const total = this.results.length;
+                const found = this.results.filter(r => r['Status'] === 'Found').length;
+                const lowStock = this.results.filter(r => r['Stock Status'] === '⚠️ Low Stock').length;
+                const multiple = this.results.filter(r => r['MultipleLocations'] === true).length;
+                return { total, found, notFound: total - found, rate: total > 0 ? ((found/total)*100).toFixed(1) : 0, lowStock, multiple };
             }
         }
         
-        function createJWT(credentials) {
+        // ============================================================
+        // UI CONTROLLER
+        // ============================================================
+        
+        class UI {
+            constructor() {
+                this.engine = new LookupEngine();
+                this.inventoryFile = null;
+                this.pullSheetFile = null;
+                this.results = [];
+                
+                this.initElements();
+                this.bindEvents();
+            }
             
-            statusElement.innerHTML = '<span class="status-badge loading">⏳ Note: Full JWT signing requires a library...</span>';
+            initElements() {
+                this.inventoryZone = document.getElementById('inventoryZone');
+                this.pullSheetZone = document.getElementById('pullsheetZone');
+                this.inventoryInput = document.getElementById('inventoryFile');
+                this.pullSheetInput = document.getElementById('pullsheetFile');
+                this.inventoryName = document.getElementById('inventoryFileName');
+                this.pullSheetName = document.getElementById('pullsheetFileName');
+                this.inventoryDetails = document.getElementById('inventoryFileDetails');
+                this.pullSheetDetails = document.getElementById('pullsheetFileDetails');
+                this.processBtn = document.getElementById('processBtn');
+                this.clearBtn = document.getElementById('clearBtn');
+                this.sampleBtn = document.getElementById('sampleBtn');
+                this.downloadBtn = document.getElementById('downloadBtn');
+                this.printBtn = document.getElementById('printBtn');
+                this.resultsSection = document.getElementById('resultsSection');
+                this.statsRow = document.getElementById('statsRow');
+                this.tableContainer = document.getElementById('tableContainer');
+                this.rowCount = document.getElementById('rowCount');
+                this.stockSummary = document.getElementById('stockSummary');
+                this.searchBox = document.getElementById('searchBox');
+                this.statusFilter = document.getElementById('statusFilter');
+                this.qtyFilter = document.getElementById('qtyFilter');
+                this.loading = document.getElementById('loading');
+            }
             
-            // For now, show the approach
-            console.log('To use this securely, include a JWT signing library like jsrsasign');
-            console.log('The full implementation would use:');
-            console.log('1. Create JWT header and payload');
-            console.log('2. Sign with the private_key from the service account');
-            console.log('3. Exchange for an access token');
+            bindEvents() {
+                this.inventoryInput.addEventListener('change', (e) => this.handleFile(e, 'inventory'));
+                this.inventoryZone.addEventListener('dragover', (e) => { e.preventDefault(); this.inventoryZone.classList.add('dragover'); });
+                this.inventoryZone.addEventListener('dragleave', () => { this.inventoryZone.classList.remove('dragover'); });
+                this.inventoryZone.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    this.inventoryZone.classList.remove('dragover');
+                    if (e.dataTransfer.files.length > 0) {
+                        this.inventoryInput.files = e.dataTransfer.files;
+                        this.handleFile({ target: { files: e.dataTransfer.files } }, 'inventory');
+                    }
+                });
+                this.inventoryZone.addEventListener('click', () => this.inventoryInput.click());
+                
+                this.pullSheetInput.addEventListener('change', (e) => this.handleFile(e, 'pullsheet'));
+                this.pullSheetZone.addEventListener('dragover', (e) => { e.preventDefault(); this.pullSheetZone.classList.add('dragover'); });
+                this.pullSheetZone.addEventListener('dragleave', () => { this.pullSheetZone.classList.remove('dragover'); });
+                this.pullSheetZone.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    this.pullSheetZone.classList.remove('dragover');
+                    if (e.dataTransfer.files.length > 0) {
+                        this.pullSheetInput.files = e.dataTransfer.files;
+                        this.handleFile({ target: { files: e.dataTransfer.files } }, 'pullsheet');
+                    }
+                });
+                this.pullSheetZone.addEventListener('click', () => this.pullSheetInput.click());
+                
+                this.processBtn.addEventListener('click', () => this.process());
+                this.clearBtn.addEventListener('click', () => this.clear());
+                this.sampleBtn.addEventListener('click', () => this.loadSample());
+                this.downloadBtn.addEventListener('click', () => this.download());
+                this.printBtn.addEventListener('click', () => this.printPickingList());
+                
+                this.searchBox.addEventListener('input', () => this.render());
+                this.statusFilter.addEventListener('change', () => this.render());
+                this.qtyFilter.addEventListener('change', () => this.render());
+            }
             
-            // Show a helpful message
-            statusElement.innerHTML = `
-                <span class="status-badge error">⏳ Additional Setup Required</span>
-                <div style="margin-top: 8px; font-size: 13px; color: #6b7280;">
-                    The full secure integration needs a JWT library. 
-                    <br><br>
-                    For now, you can use the <strong>Published CSV</strong> method (Tab 3) which doesn't require credentials, 
-                    or upload your CSV files directly.
-                    <br><br>
-                    If you want the full secure integration, let me know and I'll provide the complete version with the JWT library!
-                </div>
-            `;
+            handleFile(event, type) {
+                const file = event.target.files[0];
+                if (!file) return;
+                
+                if (type === 'inventory') {
+                    this.inventoryFile = file;
+                    this.inventoryName.textContent = `✅ ${file.name}`;
+                    this.inventoryDetails.textContent = `${(file.size / 1024).toFixed(1)} KB`;
+                    this.inventoryZone.classList.add('has-file');
+                } else {
+                    this.pullSheetFile = file;
+                    this.pullSheetName.textContent = `✅ ${file.name}`;
+                    this.pullSheetDetails.textContent = `${(file.size / 1024).toFixed(1)} KB`;
+                    this.pullSheetZone.classList.add('has-file');
+                }
+                
+                this.processBtn.disabled = !(this.inventoryFile && this.pullSheetFile);
+            }
             
-            return null;
+            async process() {
+                if (!this.inventoryFile || !this.pullSheetFile) {
+                    alert('Please upload both files');
+                    return;
+                }
+                
+                this.loading.style.display = 'block';
+                this.processBtn.disabled = true;
+                
+                try {
+                    await this.engine.loadInventory(this.inventoryFile);
+                    await this.engine.loadPullSheet(this.pullSheetFile);
+                    this.results = this.engine.process();
+                    this.render();
+                    this.resultsSection.classList.remove('hidden');
+                    debug('🎉 All done!', 'success');
+                } catch (err) {
+                    debug(`❌ Error: ${err.message}`, 'error');
+                    alert('Error: ' + err.message + '\n\nCheck the debug console (click "Show Debug" button) for details.');
+                }
+                
+                this.loading.style.display = 'none';
+                this.processBtn.disabled = false;
+            }
+            
+            render() {
+                if (!this.results || this.results.length === 0) return;
+                
+                const search = this.searchBox.value.toLowerCase();
+                const status = this.statusFilter.value;
+                const qtyFilter = this.qtyFilter.value;
+                
+                let filtered = this.results;
+                if (status !== 'all') {
+                    filtered = filtered.filter(r => r['Status'] === status);
+                }
+                if (qtyFilter === 'low') {
+                    filtered = filtered.filter(r => r['Stock Status'] === '⚠️ Low Stock');
+                } else if (qtyFilter === 'ok') {
+                    filtered = filtered.filter(r => r['Stock Status'] === '✅ Enough');
+                }
+                if (search) {
+                    filtered = filtered.filter(r => 
+                        String(r['Pull Sheet Name']).toLowerCase().includes(search) ||
+                        String(r['Location Display']).toLowerCase().includes(search) ||
+                        String(r['Clean Name']).toLowerCase().includes(search)
+                    );
+                }
+                
+                const stats = this.engine.generateStats();
+                if (stats) {
+                    this.statsRow.innerHTML = `
+                        <div class="stat-box"><div class="stat-number blue">${stats.total}</div><div class="stat-label">Total Items</div></div>
+                        <div class="stat-box"><div class="stat-number green">${stats.found}</div><div class="stat-label">✅ Found</div></div>
+                        <div class="stat-box"><div class="stat-number red">${stats.notFound}</div><div class="stat-label">❌ Not Found</div></div>
+                        <div class="stat-box"><div class="stat-number">${stats.rate}%</div><div class="stat-label">Match Rate</div></div>
+                        <div class="stat-box"><div class="stat-number orange">${stats.lowStock}</div><div class="stat-label">⚠️ Low Stock</div></div>
+                        ${stats.multiple > 0 ? `<div class="stat-box"><div class="stat-number purple">${stats.multiple}</div><div class="stat-label">📍 Multiple Locations</div></div>` : ''}
+                    `;
+                }
+                
+                this.rowCount.textContent = `Showing ${filtered.length} of ${this.results.length} items`;
+                
+                const totalQty = this.results.reduce((sum, r) => sum + r['Quantity'], 0);
+                const availQty = this.results.reduce((sum, r) => sum + (r['Total Available'] || r['Available Qty'] || 0), 0);
+                this.stockSummary.textContent = `📦 Total Ordered: ${totalQty} | Available: ${availQty}`;
+                
+                if (filtered.length === 0) {
+                    this.tableContainer.innerHTML = '<div style="padding: 40px; text-align: center; color: #6b7280;">No matches</div>';
+                    return;
+                }
+                
+                let html = `<table>
+                    <thead><tr>
+                        <th>Status</th>
+                        <th>Pull Sheet Name</th>
+                        <th>🧹 Clean</th>
+                        <th>Cond</th>
+                        <th>Set</th>
+                        <th>Qty</th>
+                        <th>📍 Locations</th>
+                        <th>Available</th>
+                        <th>Stock</th>
+                    </tr></thead><tbody>`;
+                
+                for (const row of filtered) {
+                    const statusClass = row['Status'] === 'Found' ? 'found' : 'notfound';
+                    const stockDisplay = row['Stock Status'] === '⚠️ Low Stock' ? 
+                        `<span class="qty-warning">⚠️ ${row['Total Available'] || row['Available Qty']}/${row['Quantity']}</span>` : 
+                        `<span class="qty-ok">✅ ${row['Total Available'] || row['Available Qty']}/${row['Quantity']}</span>`;
+                    
+                    const cleanDisplay = row['Cleaned'] ? 
+                        `<span class="cleaned-badge">🧹 ${row['Clean Name']}</span>` : 
+                        row['Clean Name'] || '-';
+                    
+                    let locationDisplay = '';
+                    if (row['Status'] === 'Found' && row['Locations'] && row['Locations'].length > 0) {
+                        const locItems = row['Locations'].map((loc, idx) => {
+                            const qtyText = loc.quantity > 0 ? ` (${loc.quantity})` : '';
+                            const isDifferentCondition = loc.condition !== row['Condition'] && loc.condition;
+                            const badgeClass = isDifferentCondition ? 'location-badge-diff' : 'location-badge';
+                            const condHint = isDifferentCondition ? ` (${loc.condition})` : '';
+                            return `<div class="location-item">
+                                <span class="${badgeClass}">${loc.location}${qtyText}${condHint}</span>
+                                ${idx === 0 ? '⭐' : ''}
+                            </div>`;
+                        });
+                        locationDisplay = `<div class="location-list">${locItems.join('')}</div>`;
+                        if (row['Locations'].length > 1) {
+                            locationDisplay += `<span class="multiple-locations">${row['Locations'].length} locations</span>`;
+                        }
+                    } else {
+                        locationDisplay = 'Not Found';
+                    }
+                    
+                    html += `<tr>
+                        <td><span class="${statusClass}">${row['Status']}</span></td>
+                        <td style="font-size:13px;max-width:150px;word-break:break-all;">${row['Pull Sheet Name']}</td>
+                        <td style="font-size:12px;color:#6b7280;">${cleanDisplay}</td>
+                        <td>${row['Condition']}</td>
+                        <td style="font-size:12px;max-width:100px;">${row['Set']}</td>
+                        <td>${row['Quantity']}</td>
+                        <td style="font-size:13px;max-width:250px;">${locationDisplay}</td>
+                        <td>${row['Total Available'] || row['Available Qty'] || 0}</td>
+                        <td>${stockDisplay}</td>
+                    </tr>`;
+                }
+                
+                html += '</tbody></table>';
+                this.tableContainer.innerHTML = html;
+            }
+            
+            // ============================================================
+            // PRINT PICKING LIST - NOW SHOWS ALL ITEMS
+            // ============================================================
+            printPickingList() {
+                if (!this.results || this.results.length === 0) {
+                    alert('No results to print. Please process orders first.');
+                    return;
+                }
+                
+                // Split into Found and Not Found
+                const foundItems = this.results.filter(r => r['Status'] === 'Found');
+                const notFoundItems = this.results.filter(r => r['Status'] === 'Not Found');
+                
+                // Flatten found items (each location gets its own row)
+                const flattenedFound = [];
+                for (const item of foundItems) {
+                    if (item.Locations && item.Locations.length > 0) {
+                        for (const loc of item.Locations) {
+                            flattenedFound.push({
+                                'Pull Sheet Name': item['Pull Sheet Name'],
+                                'Clean Name': item['Clean Name'],
+                                'Condition': loc.condition || item['Condition'] || '',
+                                'Set': loc.set || item['Set'] || '',
+                                'Quantity': item['Quantity'],
+                                'Location': loc.location || 'Unknown',
+                                'Available Qty': loc.quantity || 0,
+                                'Stock Status': loc.quantity >= item['Quantity'] ? '✅ Enough' : '⚠️ Low Stock',
+                                'IsFound': true
+                            });
+                        }
+                    }
+                }
+                
+                // Flatten not found items
+                const flattenedNotFound = notFoundItems.map(item => ({
+                    'Pull Sheet Name': item['Pull Sheet Name'],
+                    'Clean Name': item['Clean Name'] || item['Pull Sheet Name'],
+                    'Condition': item['Condition'] || '',
+                    'Set': item['Set'] || '',
+                    'Quantity': item['Quantity'],
+                    'Location': '❌ NOT FOUND',
+                    'Available Qty': 0,
+                    'Stock Status': '❌ Not Found',
+                    'IsFound': false
+                }));
+                
+                // Sort found items by location
+                flattenedFound.sort((a, b) => a.Location.localeCompare(b.Location));
+                
+                const stats = this.engine.generateStats();
+                
+                document.getElementById('printDate').textContent = new Date().toLocaleString();
+                
+                // Summary
+                const summaryHTML = `
+                    <div class="print-summary-item">
+                        <div class="number">${this.results.length}</div>
+                        <div class="label">Total Items</div>
+                    </div>
+                    <div class="print-summary-item">
+                        <div class="number" style="color: #22c55e;">${foundItems.length}</div>
+                        <div class="label">✅ Found</div>
+                    </div>
+                    <div class="print-summary-item">
+                        <div class="number" style="color: #ef4444;">${notFoundItems.length}</div>
+                        <div class="label">❌ Not Found</div>
+                    </div>
+                    <div class="print-summary-item">
+                        <div class="number" style="color: #f59e0b;">${stats ? stats.lowStock : 0}</div>
+                        <div class="label">⚠️ Low Stock</div>
+                    </div>
+                `;
+                document.getElementById('printSummary').innerHTML = summaryHTML;
+                
+                // --- Found Items Section ---
+                let foundHTML = '';
+                if (flattenedFound.length > 0) {
+                    const groupedFound = {};
+                    for (const item of flattenedFound) {
+                        const key = item.Location || 'Unknown';
+                        if (!groupedFound[key]) groupedFound[key] = [];
+                        groupedFound[key].push(item);
+                    }
+                    
+                    let totalPicks = 0;
+                    for (const [location, items] of Object.entries(groupedFound).sort()) {
+                        foundHTML += `<div class="print-box-header">📦 ${location}</div>`;
+                        
+                        for (const item of items) {
+                            totalPicks++;
+                            const stockStatus = item['Stock Status'] === '⚠️ Low Stock' ? 
+                                `<span style="color: #f59e0b;">⚠️ Only ${item['Available Qty']} available</span>` : 
+                                `<span style="color: #22c55e;">✅ ${item['Available Qty']} in stock</span>`;
+                            
+                            foundHTML += `
+                                <div class="print-picking-item">
+                                    <div>
+                                        <span style="font-weight:600;margin-right:10px;">${totalPicks}.</span>
+                                        <span class="card-name">${item['Clean Name'] || item['Pull Sheet Name']}</span>
+                                        <span class="card-details">
+                                            ${item['Condition'] ? `• ${item['Condition']}` : ''}
+                                            ${item['Set'] ? `• ${item['Set']}` : ''}
+                                        </span>
+                                    </div>
+                                    <div style="display:flex;align-items:center;gap:15px;">
+                                        <span style="font-weight:600;">Qty: ${item['Quantity']}</span>
+                                        ${stockStatus}
+                                    </div>
+                                </div>
+                            `;
+                        }
+                    }
+                } else {
+                    foundHTML = '<p style="color: #6b7280; padding: 10px;">No found items to display.</p>';
+                }
+                document.getElementById('printPickingList').innerHTML = foundHTML;
+                
+                // --- Not Found Items Section ---
+                let notFoundHTML = '';
+                if (flattenedNotFound.length > 0) {
+                    let nfCount = 0;
+                    for (const item of flattenedNotFound) {
+                        nfCount++;
+                        notFoundHTML += `
+                            <div class="print-picking-item" style="border-left: 3px solid #ef4444; background: #fef2f2;">
+                                <div>
+                                    <span style="font-weight:600;margin-right:10px;">${nfCount}.</span>
+                                    <span class="card-name">${item['Clean Name'] || item['Pull Sheet Name']}</span>
+                                    <span class="card-details">
+                                        ${item['Condition'] ? `• ${item['Condition']}` : ''}
+                                        ${item['Set'] ? `• ${item['Set']}` : ''}
+                                    </span>
+                                    <span class="not-found-label" style="margin-left:10px;">❌ NOT IN DATABASE</span>
+                                </div>
+                                <div style="display:flex;align-items:center;gap:15px;">
+                                    <span style="font-weight:600;">Qty: ${item['Quantity']}</span>
+                                    <span style="color: #ef4444; font-weight:500;">Check storage/update inventory</span>
+                                </div>
+                            </div>
+                        `;
+                    }
+                } else {
+                    notFoundHTML = '<p style="color: #22c55e; padding: 10px;">🎉 All items found in inventory!</p>';
+                }
+                document.getElementById('printNotFoundList').innerHTML = notFoundHTML;
+                
+                // Show/hide sections based on content
+                document.getElementById('printFoundItems').style.display = flattenedFound.length > 0 ? 'block' : 'none';
+                document.getElementById('printNotFoundItems').style.display = flattenedNotFound.length > 0 ? 'block' : 'none';
+                
+                window.print();
+            }
+            
+            download() {
+                if (!this.results || this.results.length === 0) {
+                    alert('No results to download');
+                    return;
+                }
+                
+                const wb = XLSX.utils.book_new();
+                const ws = XLSX.utils.json_to_sheet(this.results);
+                XLSX.utils.book_append_sheet(wb, ws, 'Locations');
+                
+                const blob = new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], 
+                    { type: 'application/octet-stream' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `card_locations_${new Date().toISOString().slice(0,10)}.xlsx`;
+                link.click();
+            }
+            
+            clear() {
+                this.inventoryFile = null;
+                this.pullSheetFile = null;
+                this.results = [];
+                this.inventoryInput.value = '';
+                this.pullSheetInput.value = '';
+                this.inventoryName.textContent = 'Drop Inventory CSV here';
+                this.pullSheetName.textContent = 'Drop Pull Sheet CSV here';
+                this.inventoryDetails.textContent = '';
+                this.pullSheetDetails.textContent = '';
+                this.inventoryZone.classList.remove('has-file');
+                this.pullSheetZone.classList.remove('has-file');
+                this.processBtn.disabled = true;
+                this.resultsSection.classList.add('hidden');
+                this.tableContainer.innerHTML = '';
+                this.statsRow.innerHTML = '';
+                this.rowCount.textContent = '';
+                this.stockSummary.textContent = '';
+                this.searchBox.value = '';
+                this.statusFilter.value = 'all';
+                this.qtyFilter.value = 'all';
+                
+                document.getElementById('debugBox').innerHTML = '';
+                debugLines = [];
+            }
+            
+            loadSample() {
+                const sampleInventory = [
+                    ['Product Name', 'Where is it?', 'Condition', 'Add to Quantity', 'Total Quantity', 'Set Name', 'Rarity'],
+                    ['Misty Rainforest', 'Box 12 - Shelf A - Section 3', 'Near Mint', '3', '5', 'Modern Horizons 2', 'Rare'],
+                    ['Misty Rainforest', 'Box 14 - Shelf B - Section 1', 'Near Mint', '2', '3', 'Modern Horizons 2', 'Rare'],
+                    ['Misty Rainforest', 'Box 8 - Shelf C - Section 2', 'Lightly Played', '1', '2', 'Modern Horizons 2', 'Rare'],
+                    ['Scalding Tarn', 'Box 12 - Shelf A - Section 1', 'Near Mint', '2', '4', 'Modern Horizons 2', 'Rare'],
+                    ['Scalding Tarn', 'Box 20 - Shelf D - Section 3', 'Lightly Played', '3', '5', 'Modern Horizons 2', 'Rare'],
+                    ['Arid Mesa', 'Box 14 - Shelf B - Section 2', 'Lightly Played', '1', '2', 'Modern Horizons 2', 'Rare'],
+                    ['Marsh Flats', 'Box 12 - Shelf A - Section 2', 'Near Mint', '4', '6', 'Modern Horizons 2', 'Rare'],
+                    ['Force of Will', 'Box 8 - Shelf C - Section 1', 'Near Mint', '2', '3', 'Double Masters', 'Mythic'],
+                    ['Rayquaza VMAX', 'Box 20 - Shelf D - Section 1', 'Near Mint', '2', '3', 'Evolving Skies', 'Mythic'],
+                    ['Dragonite V', 'Box 20 - Shelf D - Section 2', 'Near Mint', '3', '5', 'Evolving Skies', 'Rare'],
+                    ['Accesscode Talker', 'Box 30 - Shelf F - Section 1', 'Near Mint', '2', '4', 'Phantom Rage', 'Rare'],
+                ];
+                
+                const samplePullSheet = [
+                    ['Product Name', 'Condition', 'Set', 'Quantity'],
+                    ['E80CF076-C15CFB-5F435|E80CF076-D6DE05-8E8A5 Misty Rainforest', 'Near Mint', 'Modern Horizons 2', '2'],
+                    ['Scalding Tarn', 'Near Mint', 'Modern Horizons 2', '1'],
+                    ['Marsh Flats', 'Near Mint', 'Modern Horizons 2', '2'],
+                    ['Arid Mesa', 'Lightly Played', 'Modern Horizons 2', '1'],
+                    ['Force of Will', 'Near Mint', 'Double Masters', '1'],
+                    ['Rayquaza VMAX', 'Near Mint', 'Evolving Skies', '1'],
+                    ['Dragonite V', 'Near Mint', 'Evolving Skies', '1'],
+                    ['Accesscode Talker', 'Near Mint', 'Phantom Rage', '1'],
+                    ['Black Lotus', 'Near Mint', 'Alpha', '1'],
+                    ['Scalding Tarn', 'Near Mint', 'Modern Horizons 2', '3'],
+                ];
+                
+                const invBlob = new Blob([Papa.unparse(sampleInventory)], { type: 'text/csv' });
+                const pullBlob = new Blob([Papa.unparse(samplePullSheet)], { type: 'text/csv' });
+                
+                const invFile = new File([invBlob], 'sample_inventory.csv', { type: 'text/csv' });
+                const pullFile = new File([pullBlob], 'sample_pullsheet.csv', { type: 'text/csv' });
+                
+                const invDT = new DataTransfer(); invDT.items.add(invFile);
+                this.inventoryInput.files = invDT.files;
+                this.handleFile({ target: { files: invDT.files } }, 'inventory');
+                
+                const pullDT = new DataTransfer(); pullDT.items.add(pullFile);
+                this.pullSheetInput.files = pullDT.files;
+                this.handleFile({ target: { files: pullDT.files } }, 'pullsheet');
+                
+                setTimeout(() => this.process(), 500);
+            }
         }
         
+        // ============================================================
+        // START THE APP
+        // ============================================================
         
-        document.addEventListener('DOMContentLoaded', function() {
-            // Load Inventory from Secure Google Sheets
-            document.getElementById('secureLoadInventoryBtn').addEventListener('click', async function() {
-                const sheetId = document.getElementById('secureInventorySheetId').value.trim();
-                const sheetName = document.getElementById('secureInventorySheetName').value.trim() || 'Sheet1';
-                const serviceAccountJson = document.getElementById('serviceAccountJson').value.trim();
-                const statusEl = document.getElementById('secureInventoryStatus');
-                
-                if (!sheetId) {
-                    statusEl.innerHTML = '<span class="status-badge error">❌ Please enter a Sheet ID</span>';
-                    return;
-                }
-                
-                if (!serviceAccountJson) {
-                    statusEl.innerHTML = '<span class="status-badge error">❌ Please paste your Service Account JSON credentials</span>';
-                    return;
-                }
-                
-                const data = await loadFromSecureGoogleSheets(sheetId, sheetName, serviceAccountJson, statusEl);
-                if (data && window.ui) {
-                    window.ui.engine.inventory = data;
-                    window.ui.updateProcessButton();
-                    window.ui.inventoryFileName.textContent = `✅ Google Sheet (secure): ${sheetId}`;
-                    window.ui.inventoryFile = 'secure-google-sheets';
-                }
-            });
-            
-            // Load Pull Sheet from Secure Google Sheets
-            document.getElementById('secureLoadPullSheetBtn').addEventListener('click', async function() {
-                const sheetId = document.getElementById('securePullSheetId').value.trim();
-                const sheetName = document.getElementById('securePullSheetName').value.trim() || 'Sheet1';
-                const serviceAccountJson = document.getElementById('serviceAccountJson').value.trim();
-                const statusEl = document.getElementById('securePullStatus');
-                
-                if (!sheetId) {
-                    statusEl.innerHTML = '<span class="status-badge error">❌ Please enter a Sheet ID</span>';
-                    return;
-                }
-                
-                if (!serviceAccountJson) {
-                    statusEl.innerHTML = '<span class="status-badge error">❌ Please paste your Service Account JSON credentials</span>';
-                    return;
-                }
-                
-                const data = await loadFromSecureGoogleSheets(sheetId, sheetName, serviceAccountJson, statusEl);
-                if (data && window.ui) {
-                    window.ui.engine.pullSheet = data;
-                    window.ui.updateProcessButton();
-                    window.ui.pullSheetFileName.textContent = `✅ Google Sheet (secure): ${sheetId}`;
-                    window.ui.pullSheetFile = 'secure-google-sheets';
-                }
-            });
+        document.addEventListener('DOMContentLoaded', () => {
+            const ui = new UI();
+            window.ui = ui;
         });
-        
     </script>
 </body>
 </html>
