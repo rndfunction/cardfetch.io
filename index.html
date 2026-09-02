@@ -27,6 +27,31 @@
         .file-name { font-weight: 600; color: #1a1a2e; margin-top: 10px; }
         .file-details { font-size: 0.8rem; color: #6b7280; }
         
+        .status-bar {
+            background: #f0fdf4;
+            padding: 12px 15px;
+            border-radius: 8px;
+            border: 1px solid #22c55e;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .status-bar .status-icon { font-size: 20px; }
+        .status-bar .status-text { flex: 1; font-size: 14px; font-weight: 500; }
+        .status-bar .status-detail { font-size: 12px; color: #6b7280; }
+        .status-bar .status-badge {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .status-bar .status-badge.success { background: #dcfce7; color: #166534; }
+        .status-bar .status-badge.loading { background: #fef3c7; color: #92400e; }
+        .status-bar .status-badge.error { background: #fee2e2; color: #991b1b; }
+        
         .btn { padding: 12px 30px; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.3s ease; }
         .btn-primary { background: #6366f1; color: white; }
         .btn-primary:hover { background: #4f46e5; }
@@ -71,8 +96,6 @@
         .cleaned-badge { background: #f3e8ff; color: #6d28d9; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 500; display: inline-block; }
         .location-list { display: flex; flex-direction: column; gap: 3px; }
         .location-item { font-size: 13px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        .qty-badge { background: #e5e7eb; padding: 0 8px; border-radius: 10px; font-size: 11px; color: #4b5563; }
-        .cond-badge { font-size: 11px; color: #6b7280; }
         
         .loading { display: none; text-align: center; padding: 40px; }
         .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #6366f1; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px; }
@@ -93,14 +116,33 @@
         
         .info-note { background: #f0fdf4; padding: 12px 15px; border-radius: 8px; border-left: 4px solid #22c55e; margin: 10px 0; font-size: 14px; color: #166534; }
         
+        .local-file-note {
+            background: #f8fafc;
+            padding: 10px 15px;
+            border-radius: 8px;
+            border: 1px dashed #d1d5db;
+            margin-bottom: 15px;
+            font-size: 13px;
+            color: #6b7280;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .local-file-note code {
+            background: #e5e7eb;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #1a1a2e;
+        }
+        
         @media (max-width: 768px) {
             .upload-grid { grid-template-columns: 1fr; }
+            .upload-zone { padding: 20px; }
         }
 
-        /* ============================================================
-           PRINT STYLES
-           ============================================================ */
-        
+        /* Print Styles */
         @media print {
             body { background: white; padding: 0; margin: 0; }
             .no-print { display: none !important; }
@@ -112,12 +154,9 @@
                 -webkit-print-color-adjust: exact !important; 
                 print-color-adjust: exact !important; 
             }
-            .stats-grid { break-inside: avoid; }
-            .stat-box { border: 1px solid #ddd; }
             
             #printContent { display: block !important; }
             #mainContent { display: none !important; }
-            .print-only { display: block !important; }
             
             .print-picking-item { 
                 padding: 8px 12px; 
@@ -128,13 +167,6 @@
             }
             .print-picking-item .card-name { font-weight: 600; }
             .print-picking-item .card-details { color: #555; font-size: 13px; }
-            .print-picking-item .card-location { 
-                background: #dbeafe; 
-                padding: 2px 12px; 
-                border-radius: 12px; 
-                font-weight: 500;
-                font-size: 13px;
-            }
             .print-picking-item .not-found-label {
                 background: #fee2e2;
                 color: #991b1b;
@@ -151,10 +183,6 @@
                 font-weight: 700;
                 font-size: 18px;
                 border-left: 4px solid #6366f1;
-            }
-            .print-box-header.not-found-header {
-                border-left-color: #ef4444;
-                background: #fef2f2;
             }
             .print-summary {
                 display: grid;
@@ -191,36 +219,45 @@
                 border-top: 1px solid #eee;
                 padding-top: 15px;
             }
-            .location-group-print { margin-bottom: 5px; }
             .print-not-found-section {
                 margin-top: 20px;
                 border-top: 2px dashed #ef4444;
                 padding-top: 15px;
             }
-            .print-not-found-section .print-box-header {
-                background: #fef2f2;
-                border-left-color: #ef4444;
-            }
         }
         
         #printContent { display: none; }
-        .print-only { display: none; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header no-print">
             <h1>🔍 Card Location Lookup</h1>
-            <p>Match Pull Sheet cards to Inventory locations</p>
+            <p>Load inventory from local file or upload your own</p>
         </div>
         
-        <!-- Main Content (hidden when printing) -->
+        <!-- Main Content -->
         <div id="mainContent">
             <div class="card no-print">
+                <!-- Status Bar -->
+                <div class="status-bar" id="statusBar">
+                    <span class="status-icon">📦</span>
+                    <span class="status-text" id="statusText">Loading default inventory...</span>
+                    <span class="status-detail" id="statusDetail">inventory.csv</span>
+                    <span class="status-badge loading" id="statusBadge">⏳ Loading</span>
+                </div>
+                
+                <div class="local-file-note">
+                    📁 <strong>Default inventory:</strong> 
+                    <code>inventory.csv</code> (in the same folder as this HTML file)
+                    <span style="margin-left: auto; font-size: 12px; color: #6b7280;">⬇️ Drag a different CSV to override</span>
+                </div>
+                
+                <!-- Inventory Upload (optional override) -->
                 <div class="upload-grid">
                     <div class="upload-zone" id="inventoryZone">
                         <div class="upload-icon">📋</div>
-                        <div class="file-name" id="inventoryFileName">Drop Inventory CSV here</div>
+                        <div class="file-name" id="inventoryFileName">Drop Inventory CSV here (optional override)</div>
                         <div class="file-details" id="inventoryFileDetails"></div>
                         <input type="file" id="inventoryFile" accept=".csv">
                     </div>
@@ -233,9 +270,11 @@
                     </div>
                 </div>
                 
-                <div style="text-align: center; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+                <div style="text-align: center; margin-top: 10px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
                     <button class="btn btn-primary" id="processBtn" disabled>🔍 Look Up Locations</button>
-                    <button class="btn btn-secondary" id="clearBtn">🗑️ Clear</button>
+                    <button class="btn btn-secondary" id="clearBtn">🗑️ Clear All</button>
+                    <button class="btn btn-info" id="sampleBtn">📝 Load Sample</button>
+                    <button class="btn btn-secondary" id="debugBtn" style="font-size:12px;padding:8px 15px;">🔍 Show Debug</button>
                 </div>
                 
                 <div class="loading" id="loading">
@@ -249,9 +288,9 @@
             <div id="resultsSection" class="hidden">
                 <div class="info-note no-print">
                     💡 <strong>Available Qty</strong> comes from your Inventory's <strong>Add to Quantity</strong> column 
-                    (fallback: <strong>Total Quantity</strong> if Add to Quantity isn't available).
-                    <br>📍 If a card is in <strong>multiple locations</strong>, all will be shown with their quantities.
-                    <br>🖨️ The <strong>Print Picking List</strong> shows ALL items - found AND not found.
+                    (fallback: <strong>Total Quantity</strong>).
+                    <br>📍 Cards in <strong>multiple locations</strong> show all locations.
+                    <br>🖨️ <strong>Print Picking List</strong> shows ALL items - found AND not found.
                 </div>
                 
                 <div class="results-stats no-print" id="statsRow"></div>
@@ -282,9 +321,7 @@
             </div>
         </div>
         
-        <!-- ============================================================
-             PRINT CONTENT - Shows ALL items (Found + Not Found)
-             ============================================================ -->
+        <!-- Print Content -->
         <div id="printContent">
             <div class="print-header">
                 <h1>📦 Complete Order Fulfillment Worksheet</h1>
@@ -293,13 +330,11 @@
             
             <div id="printSummary" class="print-summary"></div>
             
-            <!-- Found items section -->
             <div id="printFoundItems">
                 <h2 style="margin-top: 20px; margin-bottom: 10px; color: #22c55e;">✅ Found Items</h2>
                 <div id="printPickingList"></div>
             </div>
             
-            <!-- Not Found items section -->
             <div id="printNotFoundItems" class="print-not-found-section">
                 <h2 style="margin-top: 20px; margin-bottom: 10px; color: #ef4444;">❌ Items Not Found in Inventory</h2>
                 <div id="printNotFoundList"></div>
@@ -313,7 +348,15 @@
     
     <script>
         // ============================================================
-        // ALL JAVASCRIPT
+        // CONFIGURATION - Change this to your default inventory filename
+        // ============================================================
+        
+        // The default inventory file to load from the same directory
+        // Change this to match your CSV filename
+        const DEFAULT_INVENTORY_FILE = 'inventory.csv';
+        
+        // ============================================================
+        // DEBUG LOGGER
         // ============================================================
         
         let debugLines = [];
@@ -354,7 +397,7 @@
         });
         
         // ============================================================
-        // SIMPLE VLOOKUP ENGINE - FINDS ALL LOCATIONS
+        // LOOKUP ENGINE
         // ============================================================
         
         class LookupEngine {
@@ -406,9 +449,54 @@
                 });
             }
             
-            async loadInventory(file) {
+            // Load inventory from a File object (CSV)
+            async loadInventoryFromFile(file) {
                 this.inventory = await this.parseCSV(file);
                 return this.inventory;
+            }
+            
+            // Load inventory from raw CSV text (for local file loading via fetch)
+            loadInventoryFromCSV(csvText, filename = 'local file') {
+                return new Promise((resolve, reject) => {
+                    debug(`📦 Parsing inventory from: ${filename}`, 'info');
+                    
+                    Papa.parse(csvText, {
+                        header: true,
+                        skipEmptyLines: true,
+                        trimHeaders: true,
+                        transformHeader: (header) => header.trim(),
+                        dynamicTyping: false,
+                        skipInvalidLines: true,
+                        complete: (results) => {
+                            debug(`📊 Rows parsed: ${results.data.length}`, 'info');
+                            debug(`📋 Headers: ${results.meta.fields ? results.meta.fields.join(', ') : 'none'}`, 'info');
+                            
+                            if (results.errors.length > 0) {
+                                debug(`⚠️ ${results.errors.length} warnings: ${results.errors[0].message}`, 'warn');
+                            }
+                            
+                            const data = results.data.filter(row => {
+                                return Object.values(row).some(val => 
+                                    val && String(val).trim() !== ''
+                                );
+                            });
+                            
+                            debug(`✅ Inventory: ${data.length} rows`, 'success');
+                            
+                            if (data.length > 0) {
+                                const sample = data[0];
+                                debug(`📝 Sample: ${JSON.stringify(sample).substring(0, 200)}...`, 'info');
+                            }
+                            
+                            this.inventory = data;
+                            resolve(data);
+                        },
+                        error: (error) => {
+                            debug(`❌ Error parsing CSV: ${error}`, 'error');
+                            reject(error);
+                        }
+                    });
+                });
             }
             
             async loadPullSheet(file) {
@@ -592,10 +680,10 @@
                 debug(`📊 Pull Sheet: ${this.pullSheet.length} rows`, 'info');
                 
                 if (this.inventory.length === 0) {
-                    throw new Error('Inventory is empty');
+                    throw new Error('Inventory is empty. Load inventory first.');
                 }
                 if (this.pullSheet.length === 0) {
-                    throw new Error('Pull Sheet is empty');
+                    throw new Error('Pull Sheet is empty. Upload a Pull Sheet CSV.');
                 }
                 
                 this.results = [];
@@ -712,7 +800,7 @@
         }
         
         // ============================================================
-        // UI CONTROLLER
+        // UI CONTROLLER - Loads from local file by default
         // ============================================================
         
         class UI {
@@ -721,25 +809,40 @@
                 this.inventoryFile = null;
                 this.pullSheetFile = null;
                 this.results = [];
+                this.inventoryLoaded = false;
+                this.pullSheetLoaded = false;
                 
                 this.initElements();
                 this.bindEvents();
+                
+                // Auto-load default inventory from local file
+                this.loadDefaultInventory();
             }
             
             initElements() {
+                // Status
+                this.statusText = document.getElementById('statusText');
+                this.statusDetail = document.getElementById('statusDetail');
+                this.statusBadge = document.getElementById('statusBadge');
+                
+                // Upload zones
                 this.inventoryZone = document.getElementById('inventoryZone');
                 this.pullSheetZone = document.getElementById('pullsheetZone');
                 this.inventoryInput = document.getElementById('inventoryFile');
                 this.pullSheetInput = document.getElementById('pullsheetFile');
-                this.inventoryName = document.getElementById('inventoryFileName');
-                this.pullSheetName = document.getElementById('pullsheetFileName');
-                this.inventoryDetails = document.getElementById('inventoryFileDetails');
-                this.pullSheetDetails = document.getElementById('pullsheetFileDetails');
+                this.inventoryFileName = document.getElementById('inventoryFileName');
+                this.pullSheetFileName = document.getElementById('pullsheetFileName');
+                this.inventoryFileDetails = document.getElementById('inventoryFileDetails');
+                this.pullSheetFileDetails = document.getElementById('pullsheetFileDetails');
+                
+                // Buttons
                 this.processBtn = document.getElementById('processBtn');
                 this.clearBtn = document.getElementById('clearBtn');
                 this.sampleBtn = document.getElementById('sampleBtn');
                 this.downloadBtn = document.getElementById('downloadBtn');
                 this.printBtn = document.getElementById('printBtn');
+                
+                // Results
                 this.resultsSection = document.getElementById('resultsSection');
                 this.statsRow = document.getElementById('statsRow');
                 this.tableContainer = document.getElementById('tableContainer');
@@ -752,7 +855,8 @@
             }
             
             bindEvents() {
-                this.inventoryInput.addEventListener('change', (e) => this.handleFile(e, 'inventory'));
+                // Inventory upload (optional override)
+                this.inventoryInput.addEventListener('change', (e) => this.handleInventoryUpload(e));
                 this.inventoryZone.addEventListener('dragover', (e) => { e.preventDefault(); this.inventoryZone.classList.add('dragover'); });
                 this.inventoryZone.addEventListener('dragleave', () => { this.inventoryZone.classList.remove('dragover'); });
                 this.inventoryZone.addEventListener('drop', (e) => {
@@ -760,12 +864,13 @@
                     this.inventoryZone.classList.remove('dragover');
                     if (e.dataTransfer.files.length > 0) {
                         this.inventoryInput.files = e.dataTransfer.files;
-                        this.handleFile({ target: { files: e.dataTransfer.files } }, 'inventory');
+                        this.handleInventoryUpload({ target: { files: e.dataTransfer.files } });
                     }
                 });
                 this.inventoryZone.addEventListener('click', () => this.inventoryInput.click());
                 
-                this.pullSheetInput.addEventListener('change', (e) => this.handleFile(e, 'pullsheet'));
+                // Pull Sheet upload
+                this.pullSheetInput.addEventListener('change', (e) => this.handlePullSheet(e));
                 this.pullSheetZone.addEventListener('dragover', (e) => { e.preventDefault(); this.pullSheetZone.classList.add('dragover'); });
                 this.pullSheetZone.addEventListener('dragleave', () => { this.pullSheetZone.classList.remove('dragover'); });
                 this.pullSheetZone.addEventListener('drop', (e) => {
@@ -773,44 +878,191 @@
                     this.pullSheetZone.classList.remove('dragover');
                     if (e.dataTransfer.files.length > 0) {
                         this.pullSheetInput.files = e.dataTransfer.files;
-                        this.handleFile({ target: { files: e.dataTransfer.files } }, 'pullsheet');
+                        this.handlePullSheet({ target: { files: e.dataTransfer.files } });
                     }
                 });
                 this.pullSheetZone.addEventListener('click', () => this.pullSheetInput.click());
                 
+                // Buttons
                 this.processBtn.addEventListener('click', () => this.process());
-                this.clearBtn.addEventListener('click', () => this.clear());
+                this.clearBtn.addEventListener('click', () => this.clearAll());
                 this.sampleBtn.addEventListener('click', () => this.loadSample());
                 this.downloadBtn.addEventListener('click', () => this.download());
                 this.printBtn.addEventListener('click', () => this.printPickingList());
                 
+                // Filters
                 this.searchBox.addEventListener('input', () => this.render());
                 this.statusFilter.addEventListener('change', () => this.render());
                 this.qtyFilter.addEventListener('change', () => this.render());
             }
             
-            handleFile(event, type) {
+            // ============================================================
+            // LOAD DEFAULT INVENTORY FROM LOCAL FILE
+            // ============================================================
+            
+            async loadDefaultInventory() {
+                this.setStatus('loading', 'Loading default inventory...', DEFAULT_INVENTORY_FILE, '⏳ Loading');
+                
+                try {
+                    debug(`📁 Attempting to load: ${DEFAULT_INVENTORY_FILE}`, 'info');
+                    
+                    const response = await fetch(DEFAULT_INVENTORY_FILE);
+                    
+                    if (!response.ok) {
+                        if (response.status === 404) {
+                            throw new Error(`File "${DEFAULT_INVENTORY_FILE}" not found in the same folder. Upload a CSV or use "Load Sample".`);
+                        }
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    
+                    const csvText = await response.text();
+                    
+                    if (!csvText.trim()) {
+                        throw new Error('File is empty');
+                    }
+                    
+                    await this.engine.loadInventoryFromCSV(csvText, DEFAULT_INVENTORY_FILE);
+                    this.inventoryLoaded = true;
+                    this.inventoryFile = DEFAULT_INVENTORY_FILE;
+                    
+                    this.setStatus(
+                        'success',
+                        `✅ Inventory loaded (${this.engine.inventory.length} rows)`,
+                        DEFAULT_INVENTORY_FILE,
+                        '✅ Loaded'
+                    );
+                    
+                    this.inventoryFileName.textContent = `✅ Default: ${DEFAULT_INVENTORY_FILE}`;
+                    this.inventoryFileDetails.textContent = `${this.engine.inventory.length} rows loaded`;
+                    this.inventoryZone.classList.add('has-file');
+                    
+                    debug(`📦 Default inventory loaded: ${this.engine.inventory.length} rows`, 'success');
+                    this.updateProcessButton();
+                    
+                } catch (error) {
+                    console.warn('Default inventory load failed:', error.message);
+                    this.setStatus(
+                        'error',
+                        `⚠️ Could not load "${DEFAULT_INVENTORY_FILE}"`,
+                        'Upload a CSV or use "Load Sample"',
+                        '❌ Not Found'
+                    );
+                    debug(`⚠️ Default inventory not found: ${error.message}`, 'warn');
+                }
+            }
+            
+            setStatus(type, text, detail, badgeText) {
+                const statusBar = document.getElementById('statusBar');
+                const icon = document.querySelector('.status-icon');
+                
+                // Update classes
+                statusBar.className = 'status-bar';
+                if (type === 'success') {
+                    statusBar.style.borderColor = '#22c55e';
+                    statusBar.style.background = '#f0fdf4';
+                } else if (type === 'error') {
+                    statusBar.style.borderColor = '#ef4444';
+                    statusBar.style.background = '#fef2f2';
+                } else if (type === 'loading') {
+                    statusBar.style.borderColor = '#f59e0b';
+                    statusBar.style.background = '#fffbeb';
+                } else {
+                    statusBar.style.borderColor = '#d1d5db';
+                    statusBar.style.background = '#f8fafc';
+                }
+                
+                this.statusText.textContent = text;
+                this.statusDetail.textContent = detail || '';
+                this.statusBadge.textContent = badgeText || '●';
+                this.statusBadge.className = `status-badge ${type === 'success' ? 'success' : type === 'error' ? 'error' : 'loading'}`;
+            }
+            
+            // ============================================================
+            // HANDLE INVENTORY UPLOAD (OVERRIDE DEFAULT)
+            // ============================================================
+            
+            async handleInventoryUpload(event) {
                 const file = event.target.files[0];
                 if (!file) return;
                 
-                if (type === 'inventory') {
-                    this.inventoryFile = file;
-                    this.inventoryName.textContent = `✅ ${file.name}`;
-                    this.inventoryDetails.textContent = `${(file.size / 1024).toFixed(1)} KB`;
-                    this.inventoryZone.classList.add('has-file');
-                } else {
-                    this.pullSheetFile = file;
-                    this.pullSheetName.textContent = `✅ ${file.name}`;
-                    this.pullSheetDetails.textContent = `${(file.size / 1024).toFixed(1)} KB`;
-                    this.pullSheetZone.classList.add('has-file');
-                }
+                this.inventoryFile = file;
+                this.inventoryFileName.textContent = `✅ ${file.name} (override)`;
+                this.inventoryFileDetails.textContent = `${(file.size / 1024).toFixed(1)} KB`;
+                this.inventoryZone.classList.add('has-file');
                 
-                this.processBtn.disabled = !(this.inventoryFile && this.pullSheetFile);
+                this.setStatus('loading', `Loading: ${file.name}...`, 'Parsing CSV', '⏳ Loading');
+                
+                try {
+                    await this.engine.loadInventoryFromFile(file);
+                    this.inventoryLoaded = true;
+                    
+                    this.setStatus(
+                        'success',
+                        `✅ Inventory loaded (${this.engine.inventory.length} rows)`,
+                        file.name,
+                        '✅ Loaded'
+                    );
+                    
+                    debug(`📦 Inventory uploaded: ${this.engine.inventory.length} rows`, 'success');
+                    this.updateProcessButton();
+                    
+                } catch (error) {
+                    this.setStatus('error', `❌ Error loading ${file.name}`, error.message, '❌ Error');
+                    debug(`❌ Inventory upload error: ${error.message}`, 'error');
+                    alert('Error loading inventory: ' + error.message);
+                }
             }
             
+            // ============================================================
+            // HANDLE PULL SHEET UPLOAD
+            // ============================================================
+            
+            async handlePullSheet(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                
+                this.pullSheetFile = file;
+                this.pullSheetFileName.textContent = `✅ ${file.name}`;
+                this.pullSheetFileDetails.textContent = `${(file.size / 1024).toFixed(1)} KB`;
+                this.pullSheetZone.classList.add('has-file');
+                this.pullSheetLoaded = true;
+                
+                try {
+                    await this.engine.loadPullSheet(file);
+                    debug(`📄 Pull Sheet loaded: ${this.engine.pullSheet.length} rows`, 'success');
+                    this.updateProcessButton();
+                } catch (error) {
+                    debug(`❌ Error loading Pull Sheet: ${error.message}`, 'error');
+                    alert('Error loading Pull Sheet: ' + error.message);
+                }
+            }
+            
+            // ============================================================
+            // UPDATE PROCESS BUTTON
+            // ============================================================
+            
+            updateProcessButton() {
+                this.processBtn.disabled = !(this.inventoryLoaded && this.pullSheetLoaded);
+                if (this.inventoryLoaded && this.pullSheetLoaded) {
+                    this.processBtn.title = 'Ready to process!';
+                } else if (!this.inventoryLoaded) {
+                    this.processBtn.title = 'Load inventory first (default or upload)';
+                } else {
+                    this.processBtn.title = 'Upload a Pull Sheet CSV first';
+                }
+            }
+            
+            // ============================================================
+            // PROCESS
+            // ============================================================
+            
             async process() {
-                if (!this.inventoryFile || !this.pullSheetFile) {
-                    alert('Please upload both files');
+                if (!this.inventoryLoaded) {
+                    alert('Please load inventory first (default or upload).');
+                    return;
+                }
+                if (!this.pullSheetLoaded) {
+                    alert('Please upload a Pull Sheet CSV first.');
                     return;
                 }
                 
@@ -818,8 +1070,6 @@
                 this.processBtn.disabled = true;
                 
                 try {
-                    await this.engine.loadInventory(this.inventoryFile);
-                    await this.engine.loadPullSheet(this.pullSheetFile);
                     this.results = this.engine.process();
                     this.render();
                     this.resultsSection.classList.remove('hidden');
@@ -832,6 +1082,10 @@
                 this.loading.style.display = 'none';
                 this.processBtn.disabled = false;
             }
+            
+            // ============================================================
+            // RENDER RESULTS
+            // ============================================================
             
             render() {
                 if (!this.results || this.results.length === 0) return;
@@ -941,19 +1195,18 @@
             }
             
             // ============================================================
-            // PRINT PICKING LIST - NOW SHOWS ALL ITEMS
+            // PRINT PICKING LIST
             // ============================================================
+            
             printPickingList() {
                 if (!this.results || this.results.length === 0) {
                     alert('No results to print. Please process orders first.');
                     return;
                 }
                 
-                // Split into Found and Not Found
                 const foundItems = this.results.filter(r => r['Status'] === 'Found');
                 const notFoundItems = this.results.filter(r => r['Status'] === 'Not Found');
                 
-                // Flatten found items (each location gets its own row)
                 const flattenedFound = [];
                 for (const item of foundItems) {
                     if (item.Locations && item.Locations.length > 0) {
@@ -973,7 +1226,6 @@
                     }
                 }
                 
-                // Flatten not found items
                 const flattenedNotFound = notFoundItems.map(item => ({
                     'Pull Sheet Name': item['Pull Sheet Name'],
                     'Clean Name': item['Clean Name'] || item['Pull Sheet Name'],
@@ -986,14 +1238,12 @@
                     'IsFound': false
                 }));
                 
-                // Sort found items by location
                 flattenedFound.sort((a, b) => a.Location.localeCompare(b.Location));
                 
                 const stats = this.engine.generateStats();
                 
                 document.getElementById('printDate').textContent = new Date().toLocaleString();
                 
-                // Summary
                 const summaryHTML = `
                     <div class="print-summary-item">
                         <div class="number">${this.results.length}</div>
@@ -1014,7 +1264,7 @@
                 `;
                 document.getElementById('printSummary').innerHTML = summaryHTML;
                 
-                // --- Found Items Section ---
+                // Found items
                 let foundHTML = '';
                 if (flattenedFound.length > 0) {
                     const groupedFound = {};
@@ -1057,7 +1307,7 @@
                 }
                 document.getElementById('printPickingList').innerHTML = foundHTML;
                 
-                // --- Not Found Items Section ---
+                // Not found items
                 let notFoundHTML = '';
                 if (flattenedNotFound.length > 0) {
                     let nfCount = 0;
@@ -1086,12 +1336,15 @@
                 }
                 document.getElementById('printNotFoundList').innerHTML = notFoundHTML;
                 
-                // Show/hide sections based on content
                 document.getElementById('printFoundItems').style.display = flattenedFound.length > 0 ? 'block' : 'none';
                 document.getElementById('printNotFoundItems').style.display = flattenedNotFound.length > 0 ? 'block' : 'none';
                 
                 window.print();
             }
+            
+            // ============================================================
+            // DOWNLOAD EXCEL
+            // ============================================================
             
             download() {
                 if (!this.results || this.results.length === 0) {
@@ -1111,18 +1364,23 @@
                 link.click();
             }
             
-            clear() {
+            // ============================================================
+            // CLEAR ALL
+            // ============================================================
+            
+            clearAll() {
                 this.inventoryFile = null;
                 this.pullSheetFile = null;
                 this.results = [];
-                this.inventoryInput.value = '';
+                this.pullSheetLoaded = false;
+                
                 this.pullSheetInput.value = '';
-                this.inventoryName.textContent = 'Drop Inventory CSV here';
-                this.pullSheetName.textContent = 'Drop Pull Sheet CSV here';
-                this.inventoryDetails.textContent = '';
-                this.pullSheetDetails.textContent = '';
-                this.inventoryZone.classList.remove('has-file');
+                this.pullSheetFileName.textContent = 'Drop Pull Sheet CSV here';
+                this.pullSheetFileDetails.textContent = '';
                 this.pullSheetZone.classList.remove('has-file');
+                
+                // Don't clear inventory - keep default or uploaded inventory
+                // But reset the button state
                 this.processBtn.disabled = true;
                 this.resultsSection.classList.add('hidden');
                 this.tableContainer.innerHTML = '';
@@ -1135,7 +1393,23 @@
                 
                 document.getElementById('debugBox').innerHTML = '';
                 debugLines = [];
+                
+                this.engine.pullSheet = [];
+                this.engine.results = [];
+                
+                // Re-check if we have inventory loaded
+                if (this.engine.inventory && this.engine.inventory.length > 0) {
+                    this.inventoryLoaded = true;
+                    this.updateProcessButton();
+                } else {
+                    // Try to reload default inventory
+                    this.loadDefaultInventory();
+                }
             }
+            
+            // ============================================================
+            // LOAD SAMPLE DATA
+            // ============================================================
             
             loadSample() {
                 const sampleInventory = [
@@ -1167,20 +1441,41 @@
                     ['Scalding Tarn', 'Near Mint', 'Modern Horizons 2', '3'],
                 ];
                 
-                const invBlob = new Blob([Papa.unparse(sampleInventory)], { type: 'text/csv' });
-                const pullBlob = new Blob([Papa.unparse(samplePullSheet)], { type: 'text/csv' });
+                this.engine.inventory = sampleInventory.map(row => {
+                    const obj = {};
+                    sampleInventory[0].forEach((header, i) => {
+                        obj[header] = row[i] || '';
+                    });
+                    return obj;
+                });
+                this.inventoryLoaded = true;
                 
-                const invFile = new File([invBlob], 'sample_inventory.csv', { type: 'text/csv' });
-                const pullFile = new File([pullBlob], 'sample_pullsheet.csv', { type: 'text/csv' });
+                this.setStatus(
+                    'success',
+                    `📝 Sample inventory loaded (${this.engine.inventory.length} rows)`,
+                    'Built-in sample data',
+                    '📝 Sample'
+                );
                 
-                const invDT = new DataTransfer(); invDT.items.add(invFile);
-                this.inventoryInput.files = invDT.files;
-                this.handleFile({ target: { files: invDT.files } }, 'inventory');
+                this.inventoryFileName.textContent = '📝 Sample Inventory (loaded)';
+                this.inventoryFileDetails.textContent = `${this.engine.inventory.length} rows`;
+                this.inventoryZone.classList.add('has-file');
+                debug(`📦 Sample inventory loaded: ${this.engine.inventory.length} rows`, 'success');
                 
-                const pullDT = new DataTransfer(); pullDT.items.add(pullFile);
-                this.pullSheetInput.files = pullDT.files;
-                this.handleFile({ target: { files: pullDT.files } }, 'pullsheet');
+                const pullData = samplePullSheet.map(row => {
+                    const obj = {};
+                    samplePullSheet[0].forEach((header, i) => {
+                        obj[header] = row[i] || '';
+                    });
+                    return obj;
+                });
+                this.engine.pullSheet = pullData;
+                this.pullSheetLoaded = true;
+                this.pullSheetFileName.textContent = '✅ Sample Pull Sheet (loaded)';
+                this.pullSheetZone.classList.add('has-file');
+                debug(`📄 Sample pull sheet loaded: ${this.engine.pullSheet.length} rows`, 'success');
                 
+                this.updateProcessButton();
                 setTimeout(() => this.process(), 500);
             }
         }
