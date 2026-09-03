@@ -51,6 +51,7 @@
         .status-bar .status-badge.success { background: #dcfce7; color: #166534; }
         .status-bar .status-badge.loading { background: #fef3c7; color: #92400e; }
         .status-bar .status-badge.error { background: #fee2e2; color: #991b1b; }
+        .status-bar .status-badge.info { background: #dbeafe; color: #1e40af; }
         
         .btn { padding: 12px 30px; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.3s ease; }
         .btn-primary { background: #6366f1; color: white; }
@@ -66,8 +67,6 @@
         .btn-warning:hover { background: #d97706; }
         .btn-print { background: #8b5cf6; color: white; }
         .btn-print:hover { background: #7c3aed; }
-        .btn-danger { background: #ef4444; color: white; }
-        .btn-danger:hover { background: #dc2626; }
         
         .results-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin: 20px 0; }
         .stat-box { background: white; padding: 20px; border-radius: 10px; text-align: center; border: 1px solid #e5e7eb; }
@@ -96,6 +95,7 @@
         .cleaned-badge { background: #f3e8ff; color: #6d28d9; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 500; display: inline-block; }
         .location-list { display: flex; flex-direction: column; gap: 3px; }
         .location-item { font-size: 13px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .filtered-badge { background: #dbeafe; color: #1e40af; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 500; display: inline-block; margin-left: 5px; }
         
         .loading { display: none; text-align: center; padding: 40px; }
         .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #6366f1; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px; }
@@ -233,7 +233,7 @@
     <div class="container">
         <div class="header no-print">
             <h1>🔍 Card Location Lookup</h1>
-            <p>Load inventory from local file or upload your own</p>
+            <p>Load inventory from local file • Upload Pull Sheet • Auto-filters for Magic cards</p>
         </div>
         
         <!-- Main Content -->
@@ -291,6 +291,7 @@
                     (fallback: <strong>Total Quantity</strong>).
                     <br>📍 Cards in <strong>multiple locations</strong> show all locations.
                     <br>🖨️ <strong>Print Picking List</strong> shows ALL items - found AND not found.
+                    <br>🔍 Pull Sheet is <strong>auto-filtered</strong> for "Magic" in the Product Line column.
                 </div>
                 
                 <div class="results-stats no-print" id="statsRow"></div>
@@ -348,12 +349,14 @@
     
     <script>
         // ============================================================
-        // CONFIGURATION - Change this to your default inventory filename
+        // CONFIGURATION
         // ============================================================
         
         // The default inventory file to load from the same directory
-        // Change this to match your CSV filename
         const DEFAULT_INVENTORY_FILE = 'inventory.csv';
+        
+        // Product Line filter - only process rows with this value
+        const PRODUCT_LINE_FILTER = 'Magic';
         
         // ============================================================
         // DEBUG LOGGER
@@ -397,14 +400,17 @@
         });
         
         // ============================================================
-        // LOOKUP ENGINE
+        // LOOKUP ENGINE - With Product Line Filtering
         // ============================================================
         
         class LookupEngine {
             constructor() {
                 this.inventory = [];
                 this.pullSheet = [];
+                this.filteredPullSheet = [];
                 this.results = [];
+                this.filteredCount = 0;
+                this.totalPullSheetRows = 0;
             }
             
             parseCSV(file) {
@@ -499,9 +505,32 @@
                 });
             }
             
+            // ============================================================
+            // LOAD PULL SHEET WITH PRODUCT LINE FILTERING
+            // ============================================================
+            
             async loadPullSheet(file) {
                 this.pullSheet = await this.parseCSV(file);
-                return this.pullSheet;
+                this.totalPullSheetRows = this.pullSheet.length;
+                
+                // Filter rows where Product Line equals "Magic"
+                this.filteredPullSheet = this.pullSheet.filter(row => {
+                    const productLine = this.findColumn(row, ['Product Line', 'ProductLine', 'Line']);
+                    const isMagic = productLine && productLine.trim().toLowerCase() === PRODUCT_LINE_FILTER.toLowerCase();
+                    return isMagic;
+                });
+                
+                this.filteredCount = this.filteredPullSheet.length;
+                
+                debug(`🔍 Product Line filter: ${PRODUCT_LINE_FILTER}`, 'info');
+                debug(`📊 Pull Sheet total rows: ${this.totalPullSheetRows}`, 'info');
+                debug(`✅ Filtered rows: ${this.filteredCount} (${((this.filteredCount/this.totalPullSheetRows)*100).toFixed(1)}% of total)`, 'success');
+                
+                if (this.filteredCount < this.totalPullSheetRows) {
+                    debug(`🗑️ Filtered out ${this.totalPullSheetRows - this.filteredCount} non-Magic rows`, 'warn');
+                }
+                
+                return this.filteredPullSheet;
             }
             
             findColumn(row, possibleNames) {
@@ -523,81 +552,37 @@
                 let name = String(rawName);
                 let cleaned = false;
                 
-                const delimiters = /[\|\*\_\t]+/;
-                const parts = name.split(delimiters);
+                // Remove any hex-looking strings (order IDs)
+                name = name.replace(/[A-F0-9]{8}-[A-F0-9]{6}-[A-F0-9]{6}/gi, '');
+                name = name.replace(/\b[A-F0-9]{6,8}\b/gi, '');
+                name = name.replace(/[\|\*\_\t]+/g, ' ').trim();
                 
-                const vowelPattern = /[aeiou]/i;
+                // Clean up extra spaces
+                name = name.replace(/\s+/g, ' ').trim();
+                
+                // Remove any remaining hex-like patterns
                 const hexPattern = /^[0-9A-F\s\-]+$/i;
+                const vowelPattern = /[aeiou]/i;
                 
-                let bestPart = '';
-                let bestScore = 0;
-                
-                for (const part of parts) {
-                    const trimmed = part.trim();
-                    if (trimmed.length < 3) continue;
-                    
-                    const isHex = hexPattern.test(trimmed) && !vowelPattern.test(trimmed);
-                    if (isHex) continue;
-                    
-                    let score = trimmed.length;
-                    if (trimmed.includes(' ')) score += 10;
-                    if (vowelPattern.test(trimmed)) score += 5;
-                    
-                    if (score > bestScore) {
-                        bestScore = score;
-                        bestPart = trimmed;
-                    }
-                }
-                
-                if (bestPart && bestPart.length > 0) {
-                    const spaceSplit = name.split(' ');
-                    let afterLastDelimiter = '';
-                    let foundCardPart = false;
-                    
-                    for (let i = 0; i < spaceSplit.length; i++) {
-                        const part = spaceSplit[i].trim();
-                        if (!part) continue;
-                        
-                        const looksLikeCard = !hexPattern.test(part) && vowelPattern.test(part);
-                        if (looksLikeCard && !foundCardPart) {
-                            foundCardPart = true;
-                            afterLastDelimiter = spaceSplit.slice(i).join(' ').trim();
-                            break;
-                        }
-                    }
-                    
-                    if (afterLastDelimiter && afterLastDelimiter.length > bestPart.length) {
-                        bestPart = afterLastDelimiter;
-                        cleaned = true;
-                    } else if (bestPart !== name) {
-                        cleaned = true;
-                    }
-                }
-                
-                if (!bestPart || bestPart.length < 3) {
-                    const words = name.split(/[\s\|]/);
-                    for (const word of words) {
-                        const trimmed = word.trim();
+                // If the whole string is hex, try to find the actual card name
+                if (hexPattern.test(name) && !vowelPattern.test(name)) {
+                    // Split and try to find a part that looks like a card name
+                    const parts = name.split(/[\s\|]/);
+                    for (const part of parts) {
+                        const trimmed = part.trim();
                         if (trimmed.length > 2 && vowelPattern.test(trimmed) && !hexPattern.test(trimmed)) {
-                            bestPart = trimmed;
+                            name = trimmed;
                             cleaned = true;
                             break;
                         }
                     }
                 }
                 
-                if (!bestPart || bestPart.length < 2) {
-                    return name.trim();
+                if (cleaned && name !== rawName) {
+                    debug(`🧹 Cleaned: "${rawName}" → "${name}"`, 'info');
                 }
                 
-                let result = bestPart.trim();
-                result = result.replace(/\s+/g, ' ').trim();
-                
-                if (cleaned && result !== rawName) {
-                    debug(`🧹 Cleaned: "${rawName}" → "${result}"`, 'info');
-                }
-                
-                return result;
+                return name;
             }
             
             getAvailableQuantity(item) {
@@ -677,13 +662,13 @@
             process() {
                 debug(`🚀 Starting VLOOKUP (finding ALL locations)...`, 'info');
                 debug(`📊 Inventory: ${this.inventory.length} rows`, 'info');
-                debug(`📊 Pull Sheet: ${this.pullSheet.length} rows`, 'info');
+                debug(`📊 Pull Sheet (filtered): ${this.filteredPullSheet.length} rows`, 'info');
                 
                 if (this.inventory.length === 0) {
                     throw new Error('Inventory is empty. Load inventory first.');
                 }
-                if (this.pullSheet.length === 0) {
-                    throw new Error('Pull Sheet is empty. Upload a Pull Sheet CSV.');
+                if (this.filteredPullSheet.length === 0) {
+                    throw new Error('No "Magic" cards found in Pull Sheet. Check the Product Line column.');
                 }
                 
                 this.results = [];
@@ -692,11 +677,12 @@
                 let usingAddToQty = 0;
                 let multipleLocations = 0;
                 
-                for (const item of this.pullSheet) {
+                for (const item of this.filteredPullSheet) {
                     const rawName = this.findColumn(item, ['Product Name', 'ProductName', 'Name', 'Card Name']);
                     const condition = this.findColumn(item, ['Condition', 'Cond']);
                     const set = this.findColumn(item, ['Set', 'Set Name', 'SetName']);
                     const qty = parseInt(this.findColumn(item, ['Quantity', 'Qty', 'Order Quantity'])) || 1;
+                    const productLine = this.findColumn(item, ['Product Line', 'ProductLine', 'Line']);
                     
                     const cleanName = this.cleanProductName(rawName);
                     if (cleanName !== rawName && cleanName) {
@@ -708,6 +694,7 @@
                         const result = {
                             'Pull Sheet Name': rawName,
                             'Clean Name': '',
+                            'Product Line': productLine,
                             'Condition': condition,
                             'Set': set,
                             'Quantity': qty,
@@ -730,6 +717,7 @@
                     const result = {
                         'Pull Sheet Name': rawName,
                         'Clean Name': cleanName,
+                        'Product Line': productLine,
                         'Condition': condition,
                         'Set': set,
                         'Quantity': qty,
@@ -795,12 +783,21 @@
                 const found = this.results.filter(r => r['Status'] === 'Found').length;
                 const lowStock = this.results.filter(r => r['Stock Status'] === '⚠️ Low Stock').length;
                 const multiple = this.results.filter(r => r['MultipleLocations'] === true).length;
-                return { total, found, notFound: total - found, rate: total > 0 ? ((found/total)*100).toFixed(1) : 0, lowStock, multiple };
+                return { 
+                    total, 
+                    found, 
+                    notFound: total - found, 
+                    rate: total > 0 ? ((found/total)*100).toFixed(1) : 0, 
+                    lowStock, 
+                    multiple,
+                    filteredCount: this.filteredCount,
+                    totalPullSheetRows: this.totalPullSheetRows
+                };
             }
         }
         
         // ============================================================
-        // UI CONTROLLER - Loads from local file by default
+        // UI CONTROLLER
         // ============================================================
         
         class UI {
@@ -897,7 +894,7 @@
             }
             
             // ============================================================
-            // LOAD DEFAULT INVENTORY FROM LOCAL FILE
+            // LOAD DEFAULT INVENTORY
             // ============================================================
             
             async loadDefaultInventory() {
@@ -910,7 +907,7 @@
                     
                     if (!response.ok) {
                         if (response.status === 404) {
-                            throw new Error(`File "${DEFAULT_INVENTORY_FILE}" not found in the same folder. Upload a CSV or use "Load Sample".`);
+                            throw new Error(`File "${DEFAULT_INVENTORY_FILE}" not found. Upload a CSV or use "Load Sample".`);
                         }
                         throw new Error(`HTTP error! status: ${response.status}`);
                     }
@@ -953,9 +950,7 @@
             
             setStatus(type, text, detail, badgeText) {
                 const statusBar = document.getElementById('statusBar');
-                const icon = document.querySelector('.status-icon');
                 
-                // Update classes
                 statusBar.className = 'status-bar';
                 if (type === 'success') {
                     statusBar.style.borderColor = '#22c55e';
@@ -978,7 +973,7 @@
             }
             
             // ============================================================
-            // HANDLE INVENTORY UPLOAD (OVERRIDE DEFAULT)
+            // HANDLE INVENTORY UPLOAD
             // ============================================================
             
             async handleInventoryUpload(event) {
@@ -1014,7 +1009,7 @@
             }
             
             // ============================================================
-            // HANDLE PULL SHEET UPLOAD
+            // HANDLE PULL SHEET UPLOAD - WITH FILTERING
             // ============================================================
             
             async handlePullSheet(event) {
@@ -1029,7 +1024,18 @@
                 
                 try {
                     await this.engine.loadPullSheet(file);
-                    debug(`📄 Pull Sheet loaded: ${this.engine.pullSheet.length} rows`, 'success');
+                    
+                    // Show filtering stats
+                    const stats = this.engine;
+                    let filterMsg = '';
+                    if (stats.filteredCount < stats.totalPullSheetRows) {
+                        filterMsg = ` (filtered ${stats.totalPullSheetRows - stats.filteredCount} non-Magic rows)`;
+                    }
+                    
+                    this.pullSheetFileName.textContent = `✅ ${file.name} - ${stats.filteredCount} Magic cards${filterMsg}`;
+                    this.pullSheetFileDetails.textContent = `${(file.size / 1024).toFixed(1)} KB • ${stats.filteredCount} of ${stats.totalPullSheetRows} rows kept`;
+                    
+                    debug(`📄 Pull Sheet loaded: ${stats.filteredCount} Magic cards${filterMsg}`, 'success');
                     this.updateProcessButton();
                 } catch (error) {
                     debug(`❌ Error loading Pull Sheet: ${error.message}`, 'error');
@@ -1063,6 +1069,12 @@
                 }
                 if (!this.pullSheetLoaded) {
                     alert('Please upload a Pull Sheet CSV first.');
+                    return;
+                }
+                
+                // Check if we have any Magic cards
+                if (this.engine.filteredPullSheet.length === 0) {
+                    alert(`No "Magic" cards found in the Pull Sheet.\n\nMake sure your Pull Sheet has a "Product Line" column with "Magic" values.`);
                     return;
                 }
                 
@@ -1114,7 +1126,7 @@
                 const stats = this.engine.generateStats();
                 if (stats) {
                     this.statsRow.innerHTML = `
-                        <div class="stat-box"><div class="stat-number blue">${stats.total}</div><div class="stat-label">Total Items</div></div>
+                        <div class="stat-box"><div class="stat-number blue">${stats.total}</div><div class="stat-label">Magic Cards in Order</div></div>
                         <div class="stat-box"><div class="stat-number green">${stats.found}</div><div class="stat-label">✅ Found</div></div>
                         <div class="stat-box"><div class="stat-number red">${stats.notFound}</div><div class="stat-label">❌ Not Found</div></div>
                         <div class="stat-box"><div class="stat-number">${stats.rate}%</div><div class="stat-label">Match Rate</div></div>
@@ -1123,7 +1135,7 @@
                     `;
                 }
                 
-                this.rowCount.textContent = `Showing ${filtered.length} of ${this.results.length} items`;
+                this.rowCount.textContent = `Showing ${filtered.length} of ${this.results.length} Magic cards`;
                 
                 const totalQty = this.results.reduce((sum, r) => sum + r['Quantity'], 0);
                 const availQty = this.results.reduce((sum, r) => sum + (r['Total Available'] || r['Available Qty'] || 0), 0);
@@ -1139,6 +1151,7 @@
                         <th>Status</th>
                         <th>Pull Sheet Name</th>
                         <th>🧹 Clean</th>
+                        <th>Product Line</th>
                         <th>Cond</th>
                         <th>Set</th>
                         <th>Qty</th>
@@ -1181,6 +1194,7 @@
                         <td><span class="${statusClass}">${row['Status']}</span></td>
                         <td style="font-size:13px;max-width:150px;word-break:break-all;">${row['Pull Sheet Name']}</td>
                         <td style="font-size:12px;color:#6b7280;">${cleanDisplay}</td>
+                        <td><span class="filtered-badge">${row['Product Line'] || 'Magic'}</span></td>
                         <td>${row['Condition']}</td>
                         <td style="font-size:12px;max-width:100px;">${row['Set']}</td>
                         <td>${row['Quantity']}</td>
@@ -1247,7 +1261,7 @@
                 const summaryHTML = `
                     <div class="print-summary-item">
                         <div class="number">${this.results.length}</div>
-                        <div class="label">Total Items</div>
+                        <div class="label">Magic Cards</div>
                     </div>
                     <div class="print-summary-item">
                         <div class="number" style="color: #22c55e;">${foundItems.length}</div>
@@ -1332,7 +1346,7 @@
                         `;
                     }
                 } else {
-                    notFoundHTML = '<p style="color: #22c55e; padding: 10px;">🎉 All items found in inventory!</p>';
+                    notFoundHTML = '<p style="color: #22c55e; padding: 10px;">🎉 All Magic cards found in inventory!</p>';
                 }
                 document.getElementById('printNotFoundList').innerHTML = notFoundHTML;
                 
@@ -1379,8 +1393,6 @@
                 this.pullSheetFileDetails.textContent = '';
                 this.pullSheetZone.classList.remove('has-file');
                 
-                // Don't clear inventory - keep default or uploaded inventory
-                // But reset the button state
                 this.processBtn.disabled = true;
                 this.resultsSection.classList.add('hidden');
                 this.tableContainer.innerHTML = '';
@@ -1395,14 +1407,13 @@
                 debugLines = [];
                 
                 this.engine.pullSheet = [];
+                this.engine.filteredPullSheet = [];
                 this.engine.results = [];
                 
-                // Re-check if we have inventory loaded
                 if (this.engine.inventory && this.engine.inventory.length > 0) {
                     this.inventoryLoaded = true;
                     this.updateProcessButton();
                 } else {
-                    // Try to reload default inventory
                     this.loadDefaultInventory();
                 }
             }
@@ -1427,18 +1438,19 @@
                     ['Accesscode Talker', 'Box 30 - Shelf F - Section 1', 'Near Mint', '2', '4', 'Phantom Rage', 'Rare'],
                 ];
                 
+                // Pull sheet with Product Line column for filtering
                 const samplePullSheet = [
-                    ['Product Name', 'Condition', 'Set', 'Quantity'],
-                    ['E80CF076-C15CFB-5F435|E80CF076-D6DE05-8E8A5 Misty Rainforest', 'Near Mint', 'Modern Horizons 2', '2'],
-                    ['Scalding Tarn', 'Near Mint', 'Modern Horizons 2', '1'],
-                    ['Marsh Flats', 'Near Mint', 'Modern Horizons 2', '2'],
-                    ['Arid Mesa', 'Lightly Played', 'Modern Horizons 2', '1'],
-                    ['Force of Will', 'Near Mint', 'Double Masters', '1'],
-                    ['Rayquaza VMAX', 'Near Mint', 'Evolving Skies', '1'],
-                    ['Dragonite V', 'Near Mint', 'Evolving Skies', '1'],
-                    ['Accesscode Talker', 'Near Mint', 'Phantom Rage', '1'],
-                    ['Black Lotus', 'Near Mint', 'Alpha', '1'],
-                    ['Scalding Tarn', 'Near Mint', 'Modern Horizons 2', '3'],
+                    ['Product Line', 'Product Name', 'Condition', 'Set', 'Quantity'],
+                    ['Magic', 'E80CF076-C15CFB-5F435|E80CF076-D6DE05-8E8A5 Misty Rainforest', 'Near Mint', 'Modern Horizons 2', '2'],
+                    ['Magic', 'Scalding Tarn', 'Near Mint', 'Modern Horizons 2', '1'],
+                    ['Magic', 'Marsh Flats', 'Near Mint', 'Modern Horizons 2', '2'],
+                    ['Magic', 'Arid Mesa', 'Lightly Played', 'Modern Horizons 2', '1'],
+                    ['Magic', 'Force of Will', 'Near Mint', 'Double Masters', '1'],
+                    ['Pokemon', 'Rayquaza VMAX', 'Near Mint', 'Evolving Skies', '1'], // Should be filtered out
+                    ['Magic', 'Dragonite V', 'Near Mint', 'Evolving Skies', '1'],
+                    ['Magic', 'Accesscode Talker', 'Near Mint', 'Phantom Rage', '1'],
+                    ['Magic', 'Black Lotus', 'Near Mint', 'Alpha', '1'],
+                    ['Magic', 'Scalding Tarn', 'Near Mint', 'Modern Horizons 2', '3'],
                 ];
                 
                 this.engine.inventory = sampleInventory.map(row => {
@@ -1469,11 +1481,22 @@
                     });
                     return obj;
                 });
+                
+                // Load pull sheet with filtering
                 this.engine.pullSheet = pullData;
+                this.engine.filteredPullSheet = pullData.filter(row => {
+                    const productLine = this.engine.findColumn(row, ['Product Line', 'ProductLine', 'Line']);
+                    return productLine && productLine.trim().toLowerCase() === PRODUCT_LINE_FILTER.toLowerCase();
+                });
+                this.engine.filteredCount = this.engine.filteredPullSheet.length;
+                this.engine.totalPullSheetRows = pullData.length;
+                
                 this.pullSheetLoaded = true;
-                this.pullSheetFileName.textContent = '✅ Sample Pull Sheet (loaded)';
+                this.pullSheetFileName.textContent = `✅ Sample Pull Sheet - ${this.engine.filteredCount} Magic cards`;
+                this.pullSheetFileDetails.textContent = `${this.engine.filteredCount} of ${pullData.length} rows kept (filtered out 1 Pokemon)`;
                 this.pullSheetZone.classList.add('has-file');
-                debug(`📄 Sample pull sheet loaded: ${this.engine.pullSheet.length} rows`, 'success');
+                
+                debug(`📄 Sample pull sheet loaded: ${this.engine.filteredCount} Magic cards`, 'success');
                 
                 this.updateProcessButton();
                 setTimeout(() => this.process(), 500);
