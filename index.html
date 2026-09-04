@@ -13,8 +13,8 @@
         .container { max-width: 1200px; margin: 0 auto; }
         
         .header { background: linear-gradient(135deg, #1a1a2e, #16213e); color: white; padding: 30px; border-radius: 12px; margin-bottom: 30px; }
-        .header h1 { font-size: 2rem; margin-bottom: 10px; }
-        .header p { opacity: 0.8; }
+        .header h1 { font-size: 2rem; margin-bottom: 5px; }
+        .header p { opacity: 0.7; font-size: 0.95rem; }
         
         .card { background: white; border-radius: 12px; padding: 25px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); margin-bottom: 20px; }
         
@@ -51,20 +51,12 @@
         .status-bar .status-badge.success { background: #dcfce7; color: #166534; }
         .status-bar .status-badge.loading { background: #fef3c7; color: #92400e; }
         .status-bar .status-badge.error { background: #fee2e2; color: #991b1b; }
-        .status-bar .status-badge.info { background: #dbeafe; color: #1e40af; }
         
         .btn { padding: 12px 30px; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.3s ease; }
-        .btn-primary { background: #6366f1; color: white; }
-        .btn-primary:hover { background: #4f46e5; }
-        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-        .btn-success { background: #22c55e; color: white; }
-        .btn-success:hover { background: #16a34a; }
-        .btn-info { background: #0ea5e9; color: white; }
-        .btn-info:hover { background: #0284c7; }
         .btn-secondary { background: #6b7280; color: white; }
         .btn-secondary:hover { background: #4b5563; }
-        .btn-warning { background: #f59e0b; color: white; }
-        .btn-warning:hover { background: #d97706; }
+        .btn-success { background: #22c55e; color: white; }
+        .btn-success:hover { background: #16a34a; }
         .btn-print { background: #8b5cf6; color: white; }
         .btn-print:hover { background: #7c3aed; }
         
@@ -92,11 +84,8 @@
         .multiple-locations { background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 500; display: inline-block; margin-left: 5px; }
         .qty-warning { background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; display: inline-block; }
         .qty-ok { background: #dcfce7; color: #166534; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; display: inline-block; }
-        .cleaned-badge { background: #f3e8ff; color: #6d28d9; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 500; display: inline-block; }
         .location-list { display: flex; flex-direction: column; gap: 3px; }
         .location-item { font-size: 13px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        .filtered-badge { background: #dbeafe; color: #1e40af; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 500; display: inline-block; margin-left: 5px; }
-        .match-detail { font-size: 11px; color: #6b7280; }
         
         .loading { display: none; text-align: center; padding: 40px; }
         .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #6366f1; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px; }
@@ -108,35 +97,6 @@
         .search-box { flex: 1; min-width: 200px; padding: 10px 15px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px; }
         .search-box:focus { outline: none; border-color: #6366f1; }
         .select-box { min-width: 150px; padding: 10px 15px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px; background: white; cursor: pointer; }
-        
-        .debug-box { background: #1a1a2e; color: #00ff00; padding: 15px; border-radius: 8px; font-family: 'Courier New', monospace; font-size: 12px; max-height: 200px; overflow-y: auto; margin-top: 15px; white-space: pre-wrap; }
-        .debug-box .error { color: #ff4444; }
-        .debug-box .success { color: #44ff44; }
-        .debug-box .info { color: #44aaff; }
-        .debug-box .warn { color: #ffaa44; }
-        
-        .info-note { background: #f0fdf4; padding: 12px 15px; border-radius: 8px; border-left: 4px solid #22c55e; margin: 10px 0; font-size: 14px; color: #166534; }
-        
-        .local-file-note {
-            background: #f8fafc;
-            padding: 10px 15px;
-            border-radius: 8px;
-            border: 1px dashed #d1d5db;
-            margin-bottom: 15px;
-            font-size: 13px;
-            color: #6b7280;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-        .local-file-note code {
-            background: #e5e7eb;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            color: #1a1a2e;
-        }
         
         .quick-lookup-section {
             background: #f8fafc;
@@ -159,17 +119,16 @@
             outline: none;
             border-color: #6366f1;
         }
-        .quick-lookup-section .row {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            margin-top: 10px;
-            align-items: center;
-        }
         .quick-lookup-section .help-text {
             font-size: 12px;
             color: #6b7280;
             margin-top: 5px;
+        }
+        .quick-lookup-section .help-text code {
+            background: #e5e7eb;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 11px;
         }
         
         .btn-primary-large {
@@ -200,16 +159,16 @@
             justify-content: center;
             gap: 15px;
             flex-wrap: wrap;
-            margin: 15px 0;
+            margin: 10px 0 0 0;
             align-items: center;
         }
         
         .input-hint {
             font-size: 13px;
             color: #6b7280;
-            margin-top: 5px;
+            margin-top: 8px;
             display: flex;
-            gap: 15px;
+            gap: 20px;
             flex-wrap: wrap;
         }
         .input-hint .hint-item {
@@ -227,6 +186,27 @@
         .input-hint .dot.orange { background: #f59e0b; }
         .input-hint .dot.blue { background: #6366f1; }
         
+        .local-file-note {
+            background: #f8fafc;
+            padding: 8px 15px;
+            border-radius: 8px;
+            border: 1px dashed #d1d5db;
+            margin-bottom: 15px;
+            font-size: 13px;
+            color: #6b7280;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .local-file-note code {
+            background: #e5e7eb;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #1a1a2e;
+        }
+        
         @media (max-width: 768px) {
             .upload-grid { grid-template-columns: 1fr; }
             .upload-zone { padding: 20px; }
@@ -240,7 +220,7 @@
             .header { background: #1a1a2e !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
             .card { box-shadow: none !important; border: 1px solid #ddd; break-inside: avoid; }
             .table-wrap { max-height: none !important; overflow: visible !important; }
-            .found, .notfound, .location-badge, .qty-warning, .qty-ok, .cleaned-badge { 
+            .found, .notfound, .location-badge, .qty-warning, .qty-ok { 
                 -webkit-print-color-adjust: exact !important; 
                 print-color-adjust: exact !important; 
             }
@@ -317,13 +297,16 @@
         }
         
         #printContent { display: none; }
+        
+        /* Remove extra note */
+        .info-note { display: none; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header no-print">
             <h1>🔍 Card Location Lookup</h1>
-            <p>Load inventory • Upload Pull Sheet or paste card list • One-click lookup</p>
+            <p>Find where your cards are stored</p>
         </div>
         
         <!-- Main Content -->
@@ -332,18 +315,18 @@
                 <!-- Status Bar -->
                 <div class="status-bar" id="statusBar">
                     <span class="status-icon">📦</span>
-                    <span class="status-text" id="statusText">Loading default inventory...</span>
+                    <span class="status-text" id="statusText">Loading inventory...</span>
                     <span class="status-detail" id="statusDetail">inventory.csv</span>
                     <span class="status-badge loading" id="statusBadge">⏳ Loading</span>
                 </div>
                 
                 <div class="local-file-note">
                     📁 <strong>Default inventory:</strong> 
-                    <code>inventory.csv</code> (in the same folder as this HTML file)
+                    <code>inventory.csv</code> (in the same folder)
                     <span style="margin-left: auto; font-size: 12px; color: #6b7280;">⬇️ Drag a different CSV to override</span>
                 </div>
                 
-                <!-- Inventory Upload (optional override) -->
+                <!-- Inventory Upload -->
                 <div class="upload-grid">
                     <div class="upload-zone" id="inventoryZone">
                         <div class="upload-icon">📋</div>
@@ -360,49 +343,36 @@
                     </div>
                 </div>
                 
-                <!-- Quick Lookup Section -->
+                <!-- Quick Lookup -->
                 <div class="quick-lookup-section">
                     <h4 style="margin-bottom: 8px;">🔎 Quick Card Lookup</h4>
-                    <p style="font-size: 13px; color: #6b7280; margin-bottom: 8px;">Paste a list of card names (one per line) to search inventory directly:</p>
-                    <textarea id="quickLookupInput" placeholder="Misty Rainforest&#10;Scalding Tarn&#10;Force of Will"></textarea>
+                    <textarea id="quickLookupInput" placeholder="Paste card names here (one per line)&#10;Example: Misty Rainforest"></textarea>
                     <div class="help-text">
-                        💡 Format: <code>Card Name</code> or <code>Card Name | Set | Number</code> for more precise matching
+                        💡 Add set or number for precision: <code>Card Name | Set | Number</code>
                     </div>
                     <div id="quickLookupStatus" style="margin-top: 8px;"></div>
                 </div>
                 
-                <!-- Input Status Hints -->
+                <!-- Input Status -->
                 <div class="input-hint">
-                    <span class="hint-item"><span class="dot green"></span> Inventory loaded</span>
-                    <span class="hint-item" id="pullSheetHint"><span class="dot orange"></span> Pull Sheet: <span id="pullSheetStatusText">None loaded</span></span>
-                    <span class="hint-item" id="quickHint"><span class="dot blue"></span> Quick Lookup: <span id="quickStatusText">Empty</span></span>
+                    <span class="hint-item"><span class="dot green"></span> Inventory: <span id="inventoryStatusText">Loaded</span></span>
+                    <span class="hint-item"><span class="dot orange"></span> Pull Sheet: <span id="pullSheetStatusText">None</span></span>
+                    <span class="hint-item"><span class="dot blue"></span> Quick Lookup: <span id="quickStatusText">Empty</span></span>
                 </div>
                 
-                <!-- SINGLE ACTION BUTTON -->
+                <!-- Action Button -->
                 <div class="action-bar">
                     <button class="btn-primary-large" id="findBtn" disabled>🔍 Find Locations</button>
                     <button class="btn btn-secondary" id="clearBtn">🗑️ Clear All</button>
-                    <button class="btn btn-info" id="sampleBtn">📝 Load Sample</button>
-                    <button class="btn btn-secondary" id="debugBtn" style="font-size:12px;padding:8px 15px;">🔍 Show Debug</button>
                 </div>
                 
                 <div class="loading" id="loading">
                     <div class="spinner"></div>
                     <p>Looking up locations...</p>
                 </div>
-                
-                <div id="debugBox" class="debug-box" style="display:none;"></div>
             </div>
             
             <div id="resultsSection" class="hidden">
-                <div class="info-note no-print">
-                    💡 <strong>Available Qty</strong> comes from your Inventory's <strong>Add to Quantity</strong> column 
-                    (fallback: <strong>Total Quantity</strong>).
-                    <br>📍 Cards in <strong>multiple locations</strong> show all locations.
-                    <br>🔍 <strong>Matching:</strong> Uses Card Name + Set + Card # for precise matching.
-                    <br>🖨️ <strong>Print Picking List</strong> shows ALL items - found AND not found.
-                </div>
-                
                 <div class="results-stats no-print" id="statsRow"></div>
                 
                 <div class="card">
@@ -414,12 +384,12 @@
                             <option value="Not Found">❌ Not Found</option>
                         </select>
                         <select class="select-box" id="qtyFilter">
-                            <option value="all">All Quantities</option>
+                            <option value="all">All</option>
                             <option value="low">⚠️ Low Stock</option>
-                            <option value="ok">✅ Enough Stock</option>
+                            <option value="ok">✅ Enough</option>
                         </select>
                         <button class="btn btn-success" id="downloadBtn">📊 Excel</button>
-                        <button class="btn btn-print" id="printBtn">🖨️ Print Picking List</button>
+                        <button class="btn btn-print" id="printBtn">🖨️ Print</button>
                     </div>
                     
                     <div class="table-wrap" id="tableContainer"></div>
@@ -434,7 +404,7 @@
         <!-- Print Content -->
         <div id="printContent">
             <div class="print-header">
-                <h1>📦 Complete Order Fulfillment Worksheet</h1>
+                <h1>📦 Order Fulfillment Worksheet</h1>
                 <div class="subtitle">Generated: <span id="printDate"></span></div>
             </div>
             
@@ -446,12 +416,12 @@
             </div>
             
             <div id="printNotFoundItems" class="print-not-found-section">
-                <h2 style="margin-top: 20px; margin-bottom: 10px; color: #ef4444;">❌ Items Not Found in Inventory</h2>
+                <h2 style="margin-top: 20px; margin-bottom: 10px; color: #ef4444;">❌ Not Found</h2>
                 <div id="printNotFoundList"></div>
             </div>
             
             <div class="print-footer">
-                Generated by Card Location Lookup Tool • Page 1 of 1
+                Generated by Card Location Lookup Tool
             </div>
         </div>
     </div>
@@ -463,47 +433,6 @@
         
         const DEFAULT_INVENTORY_FILE = 'inventory.csv';
         const PRODUCT_LINE_FILTER = 'Magic';
-        
-        // ============================================================
-        // DEBUG LOGGER
-        // ============================================================
-        
-        let debugLines = [];
-        
-        function debug(msg, type = 'info') {
-            const timestamp = new Date().toLocaleTimeString();
-            debugLines.push({ msg, type });
-            
-            const box = document.getElementById('debugBox');
-            if (box && box.style.display !== 'none') {
-                const colors = { error: '#ff4444', success: '#44ff44', info: '#44aaff', warn: '#ffaa44' };
-                const line = document.createElement('div');
-                line.style.color = colors[type] || '#ffffff';
-                line.textContent = `[${timestamp}] ${msg}`;
-                box.appendChild(line);
-                box.scrollTop = box.scrollHeight;
-            }
-            console.log(`[${type}]`, msg);
-        }
-        
-        document.getElementById('debugBtn').addEventListener('click', function() {
-            const box = document.getElementById('debugBox');
-            if (box.style.display === 'none') {
-                box.style.display = 'block';
-                this.textContent = '🔍 Hide Debug';
-                box.innerHTML = '';
-                for (const line of debugLines) {
-                    const colors = { error: '#ff4444', success: '#44ff44', info: '#44aaff', warn: '#ffaa44' };
-                    const div = document.createElement('div');
-                    div.style.color = colors[line.type] || '#ffffff';
-                    div.textContent = line.msg;
-                    box.appendChild(div);
-                }
-            } else {
-                box.style.display = 'none';
-                this.textContent = '🔍 Show Debug';
-            }
-        });
         
         // ============================================================
         // LOOKUP ENGINE
@@ -523,8 +452,6 @@
             
             parseCSV(file) {
                 return new Promise((resolve, reject) => {
-                    debug(`📄 Parsing: ${file.name} (${(file.size/1024).toFixed(1)} KB)`, 'info');
-                    
                     Papa.parse(file, {
                         header: true,
                         skipEmptyLines: true,
@@ -533,32 +460,16 @@
                         dynamicTyping: false,
                         skipInvalidLines: true,
                         complete: (results) => {
-                            debug(`📊 Rows parsed: ${results.data.length}`, 'info');
-                            debug(`📋 Headers: ${results.meta.fields ? results.meta.fields.join(', ') : 'none'}`, 'info');
-                            
                             if (results.errors.length > 0) {
-                                debug(`⚠️ ${results.errors.length} warnings: ${results.errors[0].message}`, 'warn');
+                                reject(new Error('CSV parsing error: ' + results.errors[0].message));
+                            } else {
+                                const data = results.data.filter(row => {
+                                    return Object.values(row).some(val => val && String(val).trim() !== '');
+                                });
+                                resolve(data);
                             }
-                            
-                            const data = results.data.filter(row => {
-                                return Object.values(row).some(val => 
-                                    val && String(val).trim() !== ''
-                                );
-                            });
-                            
-                            debug(`✅ Cleaned rows: ${data.length}`, 'success');
-                            
-                            if (data.length > 0) {
-                                const sample = data[0];
-                                debug(`📝 Sample: ${JSON.stringify(sample).substring(0, 200)}...`, 'info');
-                            }
-                            
-                            resolve(data);
                         },
-                        error: (error) => {
-                            debug(`❌ Error: ${error}`, 'error');
-                            reject(error);
-                        }
+                        error: (error) => reject(error)
                     });
                 });
             }
@@ -570,8 +481,6 @@
             
             loadInventoryFromCSV(csvText, filename = 'local file') {
                 return new Promise((resolve, reject) => {
-                    debug(`📦 Parsing inventory from: ${filename}`, 'info');
-                    
                     Papa.parse(csvText, {
                         header: true,
                         skipEmptyLines: true,
@@ -580,33 +489,17 @@
                         dynamicTyping: false,
                         skipInvalidLines: true,
                         complete: (results) => {
-                            debug(`📊 Rows parsed: ${results.data.length}`, 'info');
-                            debug(`📋 Headers: ${results.meta.fields ? results.meta.fields.join(', ') : 'none'}`, 'info');
-                            
                             if (results.errors.length > 0) {
-                                debug(`⚠️ ${results.errors.length} warnings: ${results.errors[0].message}`, 'warn');
+                                reject(new Error('CSV parsing error: ' + results.errors[0].message));
+                            } else {
+                                const data = results.data.filter(row => {
+                                    return Object.values(row).some(val => val && String(val).trim() !== '');
+                                });
+                                this.inventory = data;
+                                resolve(data);
                             }
-                            
-                            const data = results.data.filter(row => {
-                                return Object.values(row).some(val => 
-                                    val && String(val).trim() !== ''
-                                );
-                            });
-                            
-                            debug(`✅ Inventory: ${data.length} rows`, 'success');
-                            
-                            if (data.length > 0) {
-                                const sample = data[0];
-                                debug(`📝 Sample: ${JSON.stringify(sample).substring(0, 200)}...`, 'info');
-                            }
-                            
-                            this.inventory = data;
-                            resolve(data);
                         },
-                        error: (error) => {
-                            debug(`❌ Error parsing CSV: ${error}`, 'error');
-                            reject(error);
-                        }
+                        error: (error) => reject(error)
                     });
                 });
             }
@@ -617,20 +510,10 @@
                 
                 this.filteredPullSheet = this.pullSheet.filter(row => {
                     const productLine = this.findColumn(row, ['Product Line', 'ProductLine', 'Line']);
-                    const isMagic = productLine && productLine.trim().toLowerCase() === PRODUCT_LINE_FILTER.toLowerCase();
-                    return isMagic;
+                    return productLine && productLine.trim().toLowerCase() === PRODUCT_LINE_FILTER.toLowerCase();
                 });
                 
                 this.filteredCount = this.filteredPullSheet.length;
-                
-                debug(`🔍 Product Line filter: ${PRODUCT_LINE_FILTER}`, 'info');
-                debug(`📊 Pull Sheet total rows: ${this.totalPullSheetRows}`, 'info');
-                debug(`✅ Filtered rows: ${this.filteredCount} (${((this.filteredCount/this.totalPullSheetRows)*100).toFixed(1)}% of total)`, 'success');
-                
-                if (this.filteredCount < this.totalPullSheetRows) {
-                    debug(`🗑️ Filtered out ${this.totalPullSheetRows - this.filteredCount} non-Magic rows`, 'warn');
-                }
-                
                 this.isQuickLookup = false;
                 return this.filteredPullSheet;
             }
@@ -650,21 +533,13 @@
             
             cleanProductName(rawName) {
                 if (!rawName) return '';
-                
                 let name = String(rawName);
-                
-                // Remove hex-looking strings (order IDs)
                 name = name.replace(/[A-F0-9]{8}-[A-F0-9]{6}-[A-F0-9]{6}/gi, '');
                 name = name.replace(/\b[A-F0-9]{6,8}\b/gi, '');
                 name = name.replace(/[\|\*\_\t]+/g, ' ').trim();
                 name = name.replace(/\s+/g, ' ').trim();
-                
                 return name;
             }
-            
-            // ============================================================
-            // ENHANCED MULTI-FIELD MATCHING
-            // ============================================================
             
             findCardLocations(productName, cardNumber, set, condition) {
                 if (!this.inventory || this.inventory.length === 0) return [];
@@ -687,93 +562,53 @@
                     const itemSet = clean(this.findColumn(item, ['Set Name', 'Set', 'SetName']));
                     const itemCondition = clean(this.findColumn(item, ['Condition', 'Cond']));
                     
-                    // Strategy 1: Exact match on ALL fields - BEST
                     if (itemName === searchName && 
                         itemNumber === searchNumber && 
                         itemSet === searchSet &&
                         itemCondition === searchCondition) {
-                        matches.push({ 
-                            item, 
-                            score: 100, 
-                            matchType: 'Exact: Name + Number + Set + Condition' 
-                        });
+                        matches.push({ item, score: 100, matchType: 'Exact: Name + Number + Set + Condition' });
                         continue;
                     }
                     
-                    // Strategy 2: Name + Number + Set
                     if (itemName === searchName && 
                         itemNumber === searchNumber && 
                         itemSet === searchSet) {
-                        matches.push({ 
-                            item, 
-                            score: 90, 
-                            matchType: 'Exact: Name + Number + Set' 
-                        });
+                        matches.push({ item, score: 90, matchType: 'Exact: Name + Number + Set' });
                         continue;
                     }
                     
-                    // Strategy 3: Name + Set + Condition
                     if (itemName === searchName && 
                         itemSet === searchSet &&
                         itemCondition === searchCondition) {
-                        matches.push({ 
-                            item, 
-                            score: 85, 
-                            matchType: 'Exact: Name + Set + Condition' 
-                        });
+                        matches.push({ item, score: 85, matchType: 'Exact: Name + Set + Condition' });
                         continue;
                     }
                     
-                    // Strategy 4: Name + Number
                     if (itemName === searchName && 
                         itemNumber === searchNumber) {
-                        matches.push({ 
-                            item, 
-                            score: 80, 
-                            matchType: 'Exact: Name + Number' 
-                        });
+                        matches.push({ item, score: 80, matchType: 'Exact: Name + Number' });
                         continue;
                     }
                     
-                    // Strategy 5: Name + Set
                     if (itemName === searchName && 
                         itemSet === searchSet) {
-                        matches.push({ 
-                            item, 
-                            score: 70, 
-                            matchType: 'Exact: Name + Set' 
-                        });
+                        matches.push({ item, score: 70, matchType: 'Exact: Name + Set' });
                         continue;
                     }
                     
-                    // Strategy 6: Name only
                     if (itemName === searchName) {
-                        matches.push({ 
-                            item, 
-                            score: 60, 
-                            matchType: 'Exact: Name only' 
-                        });
+                        matches.push({ item, score: 60, matchType: 'Exact: Name only' });
                         continue;
                     }
                     
-                    // Strategy 7: Partial name + Set
                     if ((itemName.includes(searchName) || searchName.includes(itemName)) && 
                         itemSet === searchSet) {
-                        matches.push({ 
-                            item, 
-                            score: 50, 
-                            matchType: 'Partial Name + Set' 
-                        });
+                        matches.push({ item, score: 50, matchType: 'Partial Name + Set' });
                         continue;
                     }
                     
-                    // Strategy 8: Partial name only
                     if (itemName.includes(searchName) || searchName.includes(itemName)) {
-                        matches.push({ 
-                            item, 
-                            score: 40, 
-                            matchType: 'Partial Name' 
-                        });
+                        matches.push({ item, score: 40, matchType: 'Partial Name' });
                         continue;
                     }
                 }
@@ -802,10 +637,6 @@
                 return 0;
             }
             
-            // ============================================================
-            // QUICK LOOKUP
-            // ============================================================
-            
             quickLookup(cardList) {
                 if (!this.inventory || this.inventory.length === 0) {
                     throw new Error('Inventory is empty. Load inventory first.');
@@ -818,8 +649,6 @@
                 if (lines.length === 0) {
                     throw new Error('No card names provided.');
                 }
-                
-                debug(`🔎 Quick lookup: ${lines.length} cards`, 'info');
                 
                 this.quickLookupResults = [];
                 let foundCount = 0;
@@ -840,10 +669,7 @@
                     
                     const cleanName = this.cleanProductName(name);
                     
-                    if (!cleanName) {
-                        debug(`⚠️ Skipping empty line: "${line}"`, 'warn');
-                        continue;
-                    }
+                    if (!cleanName) continue;
                     
                     const matches = this.findCardLocations(cleanName, number, set, condition);
                     
@@ -889,25 +715,19 @@
                 }
                 
                 this.isQuickLookup = true;
-                debug(`✅ Quick lookup: ${foundCount}/${lines.length} found`, 'success');
                 return this.quickLookupResults;
             }
             
             processPullSheet() {
-                debug(`🚀 Processing Pull Sheet...`, 'info');
-                debug(`📊 Inventory: ${this.inventory.length} rows`, 'info');
-                debug(`📊 Pull Sheet (filtered): ${this.filteredPullSheet.length} rows`, 'info');
-                
                 if (this.inventory.length === 0) {
                     throw new Error('Inventory is empty. Load inventory first.');
                 }
                 if (this.filteredPullSheet.length === 0) {
-                    throw new Error('No "Magic" cards found in Pull Sheet. Check the Product Line column.');
+                    throw new Error('No "Magic" cards found in Pull Sheet.');
                 }
                 
                 this.results = [];
                 let found = 0;
-                let usingAddToQty = 0;
                 let multipleLocations = 0;
                 this.isQuickLookup = false;
                 
@@ -922,7 +742,6 @@
                     const cleanName = this.cleanProductName(rawName);
                     
                     if (!cleanName || cleanName.length < 2) {
-                        debug(`⚠️ Empty after cleaning: "${rawName}"`, 'warn');
                         const result = {
                             'Pull Sheet Name': rawName,
                             'Clean Name': '',
@@ -939,7 +758,6 @@
                             'Inventory Name': '',
                             'Available Qty': 0,
                             'Stock Status': 'No Stock',
-                            'Qty Source': '',
                             'MultipleLocations': false
                         };
                         this.results.push(result);
@@ -964,7 +782,6 @@
                         'Inventory Name': '',
                         'Available Qty': 0,
                         'Stock Status': 'No Stock',
-                        'Qty Source': '',
                         'MultipleLocations': false
                     };
                     
@@ -998,26 +815,16 @@
                         result['Stock Status'] = totalAvailable >= qty ? '✅ Enough' : '⚠️ Low Stock';
                         result['Total Available'] = totalAvailable;
                         
-                        const addQty = this.findColumn(firstMatch.item, ['Add to Quantity', 'AddToQuantity', 'Add Quantity']);
-                        if (addQty && !isNaN(parseInt(addQty))) {
-                            result['Qty Source'] = 'Add to Quantity';
-                            usingAddToQty++;
-                        } else {
-                            result['Qty Source'] = 'Total Quantity';
-                        }
-                        
                         found++;
                         
                         if (matches.length > 1) {
                             multipleLocations++;
-                            debug(`📍 Multiple locations found for "${cleanName}": ${matches.length} locations`, 'info');
                         }
                     }
                     
                     this.results.push(result);
                 }
                 
-                debug(`✅ Found ${found}/${this.results.length} items (${((found/this.results.length)*100).toFixed(1)}%)`, 'success');
                 return this.results;
             }
             
@@ -1034,15 +841,13 @@
                     rate: total > 0 ? ((found/total)*100).toFixed(1) : 0, 
                     lowStock, 
                     multiple,
-                    filteredCount: this.filteredCount,
-                    totalPullSheetRows: this.totalPullSheetRows,
                     isQuickLookup: this.isQuickLookup
                 };
             }
         }
         
         // ============================================================
-        // UI CONTROLLER - UPDATED: Button enables with Quick Lookup text
+        // UI CONTROLLER
         // ============================================================
         
         class UI {
@@ -1056,7 +861,6 @@
                 
                 this.initElements();
                 this.bindEvents();
-                
                 this.loadDefaultInventory();
             }
             
@@ -1073,6 +877,7 @@
                 this.pullSheetFileName = document.getElementById('pullsheetFileName');
                 this.inventoryFileDetails = document.getElementById('inventoryFileDetails');
                 this.pullSheetFileDetails = document.getElementById('pullsheetFileDetails');
+                this.inventoryStatusText = document.getElementById('inventoryStatusText');
                 
                 this.quickLookupInput = document.getElementById('quickLookupInput');
                 this.quickLookupStatus = document.getElementById('quickLookupStatus');
@@ -1081,7 +886,6 @@
                 
                 this.findBtn = document.getElementById('findBtn');
                 this.clearBtn = document.getElementById('clearBtn');
-                this.sampleBtn = document.getElementById('sampleBtn');
                 this.downloadBtn = document.getElementById('downloadBtn');
                 this.printBtn = document.getElementById('printBtn');
                 
@@ -1123,16 +927,13 @@
                 });
                 this.pullSheetZone.addEventListener('click', () => this.pullSheetInput.click());
                 
-                // Quick Lookup - update status and button in real-time
                 this.quickLookupInput.addEventListener('input', () => {
                     this.updateQuickStatus();
                     this.updateFindButton();
                 });
                 
                 this.findBtn.addEventListener('click', () => this.findLocations());
-                
                 this.clearBtn.addEventListener('click', () => this.clearAll());
-                this.sampleBtn.addEventListener('click', () => this.loadSample());
                 this.downloadBtn.addEventListener('click', () => this.download());
                 this.printBtn.addEventListener('click', () => this.printPickingList());
                 
@@ -1141,78 +942,40 @@
                 this.qtyFilter.addEventListener('change', () => this.render());
             }
             
-            // ============================================================
-            // LOAD DEFAULT INVENTORY
-            // ============================================================
-            
-            async loadDefaultInventory() {
-                this.setStatus('loading', 'Loading default inventory...', DEFAULT_INVENTORY_FILE, '⏳ Loading');
+            loadDefaultInventory() {
+                this.setStatus('loading', 'Loading inventory...', DEFAULT_INVENTORY_FILE, '⏳ Loading');
                 
-                try {
-                    debug(`📁 Attempting to load: ${DEFAULT_INVENTORY_FILE}`, 'info');
-                    
-                    const response = await fetch(DEFAULT_INVENTORY_FILE);
-                    
-                    if (!response.ok) {
-                        if (response.status === 404) {
-                            throw new Error(`File "${DEFAULT_INVENTORY_FILE}" not found. Upload a CSV or use "Load Sample".`);
-                        }
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    
-                    const csvText = await response.text();
-                    
-                    if (!csvText.trim()) {
-                        throw new Error('File is empty');
-                    }
-                    
-                    await this.engine.loadInventoryFromCSV(csvText, DEFAULT_INVENTORY_FILE);
-                    this.inventoryLoaded = true;
-                    this.inventoryFile = DEFAULT_INVENTORY_FILE;
-                    
-                    this.setStatus(
-                        'success',
-                        `✅ Inventory loaded (${this.engine.inventory.length} rows)`,
-                        DEFAULT_INVENTORY_FILE,
-                        '✅ Loaded'
-                    );
-                    
-                    this.inventoryFileName.textContent = `✅ Default: ${DEFAULT_INVENTORY_FILE}`;
-                    this.inventoryFileDetails.textContent = `${this.engine.inventory.length} rows loaded`;
-                    this.inventoryZone.classList.add('has-file');
-                    
-                    debug(`📦 Default inventory loaded: ${this.engine.inventory.length} rows`, 'success');
-                    this.updateFindButton();
-                    
-                } catch (error) {
-                    console.warn('Default inventory load failed:', error.message);
-                    this.setStatus(
-                        'error',
-                        `⚠️ Could not load "${DEFAULT_INVENTORY_FILE}"`,
-                        'Upload a CSV or use "Load Sample"',
-                        '❌ Not Found'
-                    );
-                    debug(`⚠️ Default inventory not found: ${error.message}`, 'warn');
-                }
+                fetch(DEFAULT_INVENTORY_FILE)
+                    .then(response => {
+                        if (!response.ok) throw new Error('File not found');
+                        return response.text();
+                    })
+                    .then(csvText => {
+                        if (!csvText.trim()) throw new Error('File is empty');
+                        return this.engine.loadInventoryFromCSV(csvText, DEFAULT_INVENTORY_FILE);
+                    })
+                    .then(() => {
+                        this.inventoryLoaded = true;
+                        this.inventoryFile = DEFAULT_INVENTORY_FILE;
+                        this.inventoryStatusText.textContent = 'Loaded';
+                        this.setStatus('success', `✅ Inventory loaded (${this.engine.inventory.length} rows)`, DEFAULT_INVENTORY_FILE, '✅ Loaded');
+                        this.inventoryFileName.textContent = `✅ Default: ${DEFAULT_INVENTORY_FILE}`;
+                        this.inventoryFileDetails.textContent = `${this.engine.inventory.length} rows`;
+                        this.inventoryZone.classList.add('has-file');
+                        this.updateFindButton();
+                    })
+                    .catch((error) => {
+                        console.warn('Default inventory load failed:', error.message);
+                        this.setStatus('error', '⚠️ No inventory found', 'Upload a CSV or use Quick Lookup', '❌ Missing');
+                        this.inventoryStatusText.textContent = 'Not loaded';
+                    });
             }
             
             setStatus(type, text, detail, badgeText) {
                 const statusBar = document.getElementById('statusBar');
-                
                 statusBar.className = 'status-bar';
-                if (type === 'success') {
-                    statusBar.style.borderColor = '#22c55e';
-                    statusBar.style.background = '#f0fdf4';
-                } else if (type === 'error') {
-                    statusBar.style.borderColor = '#ef4444';
-                    statusBar.style.background = '#fef2f2';
-                } else if (type === 'loading') {
-                    statusBar.style.borderColor = '#f59e0b';
-                    statusBar.style.background = '#fffbeb';
-                } else {
-                    statusBar.style.borderColor = '#d1d5db';
-                    statusBar.style.background = '#f8fafc';
-                }
+                statusBar.style.borderColor = type === 'success' ? '#22c55e' : type === 'error' ? '#ef4444' : type === 'loading' ? '#f59e0b' : '#d1d5db';
+                statusBar.style.background = type === 'success' ? '#f0fdf4' : type === 'error' ? '#fef2f2' : type === 'loading' ? '#fffbeb' : '#f8fafc';
                 
                 this.statusText.textContent = text;
                 this.statusDetail.textContent = detail || '';
@@ -1220,57 +983,37 @@
                 this.statusBadge.className = `status-badge ${type === 'success' ? 'success' : type === 'error' ? 'error' : 'loading'}`;
             }
             
-            // ============================================================
-            // UPDATE QUICK STATUS
-            // ============================================================
-            
             updateQuickStatus() {
                 const text = this.quickLookupInput.value.trim();
                 const count = text ? text.split('\n').filter(line => line.trim().length > 0).length : 0;
                 this.quickStatusText.textContent = count > 0 ? `${count} cards` : 'Empty';
             }
             
-            // ============================================================
-            // HANDLE INVENTORY UPLOAD
-            // ============================================================
-            
-            async handleInventoryUpload(event) {
+            handleInventoryUpload(event) {
                 const file = event.target.files[0];
                 if (!file) return;
                 
                 this.inventoryFile = file;
-                this.inventoryFileName.textContent = `✅ ${file.name} (override)`;
+                this.inventoryFileName.textContent = `✅ ${file.name}`;
                 this.inventoryFileDetails.textContent = `${(file.size / 1024).toFixed(1)} KB`;
                 this.inventoryZone.classList.add('has-file');
                 
                 this.setStatus('loading', `Loading: ${file.name}...`, 'Parsing CSV', '⏳ Loading');
                 
-                try {
-                    await this.engine.loadInventoryFromFile(file);
-                    this.inventoryLoaded = true;
-                    
-                    this.setStatus(
-                        'success',
-                        `✅ Inventory loaded (${this.engine.inventory.length} rows)`,
-                        file.name,
-                        '✅ Loaded'
-                    );
-                    
-                    debug(`📦 Inventory uploaded: ${this.engine.inventory.length} rows`, 'success');
-                    this.updateFindButton();
-                    
-                } catch (error) {
-                    this.setStatus('error', `❌ Error loading ${file.name}`, error.message, '❌ Error');
-                    debug(`❌ Inventory upload error: ${error.message}`, 'error');
-                    alert('Error loading inventory: ' + error.message);
-                }
+                this.engine.loadInventoryFromFile(file)
+                    .then(() => {
+                        this.inventoryLoaded = true;
+                        this.inventoryStatusText.textContent = 'Loaded';
+                        this.setStatus('success', `✅ Inventory loaded (${this.engine.inventory.length} rows)`, file.name, '✅ Loaded');
+                        this.updateFindButton();
+                    })
+                    .catch((error) => {
+                        this.setStatus('error', `❌ Error loading ${file.name}`, error.message, '❌ Error');
+                        alert('Error loading inventory: ' + error.message);
+                    });
             }
             
-            // ============================================================
-            // HANDLE PULL SHEET UPLOAD
-            // ============================================================
-            
-            async handlePullSheet(event) {
+            handlePullSheet(event) {
                 const file = event.target.files[0];
                 if (!file) return;
                 
@@ -1280,30 +1023,18 @@
                 this.pullSheetZone.classList.add('has-file');
                 this.pullSheetLoaded = true;
                 
-                try {
-                    await this.engine.loadPullSheet(file);
-                    
-                    const stats = this.engine;
-                    let filterMsg = '';
-                    if (stats.filteredCount < stats.totalPullSheetRows) {
-                        filterMsg = ` (filtered ${stats.totalPullSheetRows - stats.filteredCount} non-Magic rows)`;
-                    }
-                    
-                    this.pullSheetFileName.textContent = `✅ ${file.name} - ${stats.filteredCount} Magic cards${filterMsg}`;
-                    this.pullSheetFileDetails.textContent = `${(file.size / 1024).toFixed(1)} KB • ${stats.filteredCount} of ${stats.totalPullSheetRows} rows kept`;
-                    this.pullSheetStatusText.textContent = `${stats.filteredCount} cards`;
-                    
-                    debug(`📄 Pull Sheet loaded: ${stats.filteredCount} Magic cards${filterMsg}`, 'success');
-                    this.updateFindButton();
-                } catch (error) {
-                    debug(`❌ Error loading Pull Sheet: ${error.message}`, 'error');
-                    alert('Error loading Pull Sheet: ' + error.message);
-                }
+                this.engine.loadPullSheet(file)
+                    .then(() => {
+                        const stats = this.engine;
+                        this.pullSheetFileName.textContent = `✅ ${file.name} - ${stats.filteredCount} Magic cards`;
+                        this.pullSheetFileDetails.textContent = `${(file.size / 1024).toFixed(1)} KB • ${stats.filteredCount} of ${stats.totalPullSheetRows} rows`;
+                        this.pullSheetStatusText.textContent = `${stats.filteredCount} cards`;
+                        this.updateFindButton();
+                    })
+                    .catch((error) => {
+                        alert('Error loading Pull Sheet: ' + error.message);
+                    });
             }
-            
-            // ============================================================
-            // UPDATE FIND BUTTON - Enables if Pull Sheet OR Quick Lookup text
-            // ============================================================
             
             updateFindButton() {
                 const hasInventory = this.inventoryLoaded;
@@ -1311,27 +1042,20 @@
                 const quickText = this.quickLookupInput.value.trim();
                 const hasQuickText = quickText.length > 0;
                 
-                // Enable if we have inventory AND (Pull Sheet OR Quick Lookup text)
                 this.findBtn.disabled = !hasInventory || !(hasPullSheet || hasQuickText);
                 
                 if (!hasInventory) {
                     this.findBtn.title = 'Load inventory first';
                 } else if (!hasPullSheet && !hasQuickText) {
                     this.findBtn.title = 'Upload a Pull Sheet or paste card names';
-                } else if (hasPullSheet) {
-                    this.findBtn.title = 'Process Pull Sheet';
                 } else {
-                    this.findBtn.title = 'Look up pasted cards';
+                    this.findBtn.title = 'Find locations';
                 }
             }
             
-            // ============================================================
-            // SINGLE FIND LOCATIONS BUTTON
-            // ============================================================
-            
-            async findLocations() {
+            findLocations() {
                 if (!this.inventoryLoaded) {
-                    alert('Please load inventory first (default or upload).');
+                    alert('Please load inventory first.');
                     return;
                 }
                 
@@ -1340,7 +1064,7 @@
                 const hasQuickLookup = quickText.length > 0;
                 
                 if (!hasPullSheet && !hasQuickLookup) {
-                    alert('Please either:\n\n1. Upload a Pull Sheet CSV\n2. Paste card names in the Quick Lookup box\n\nThen click "Find Locations" again.');
+                    alert('Please upload a Pull Sheet CSV or paste card names.');
                     return;
                 }
                 
@@ -1350,31 +1074,21 @@
                 
                 try {
                     if (hasPullSheet) {
-                        // Prefer Pull Sheet if available
                         this.results = this.engine.processPullSheet();
-                        debug(`📊 Processed Pull Sheet: ${this.results.length} items`, 'success');
                     } else if (hasQuickLookup) {
-                        // Otherwise use Quick Lookup
                         this.results = this.engine.quickLookup(quickText);
-                        debug(`🔎 Quick lookup: ${this.results.length} items`, 'success');
                     }
                     
                     this.render();
                     this.resultsSection.classList.remove('hidden');
-                    debug('🎉 All done!', 'success');
                 } catch (err) {
-                    debug(`❌ Error: ${err.message}`, 'error');
-                    alert('Error: ' + err.message + '\n\nCheck the debug console (click "Show Debug" button) for details.');
+                    alert('Error: ' + err.message);
                 }
                 
                 this.loading.style.display = 'none';
                 this.findBtn.disabled = false;
                 this.findBtn.textContent = '🔍 Find Locations';
             }
-            
-            // ============================================================
-            // RENDER RESULTS
-            // ============================================================
             
             render() {
                 if (!this.results || this.results.length === 0) return;
@@ -1385,26 +1099,19 @@
                 const isQuick = this.engine.isQuickLookup;
                 
                 let filtered = this.results;
-                if (status !== 'all') {
-                    filtered = filtered.filter(r => r['Status'] === status);
-                }
-                if (qtyFilter === 'low') {
-                    filtered = filtered.filter(r => r['Stock Status'] === '⚠️ Low Stock');
-                } else if (qtyFilter === 'ok') {
-                    filtered = filtered.filter(r => r['Stock Status'] === '✅ Enough');
-                }
-                if (search) {
-                    filtered = filtered.filter(r => 
-                        String(r['Pull Sheet Name'] || r['Search Query'] || '').toLowerCase().includes(search) ||
-                        String(r['Location Display']).toLowerCase().includes(search) ||
-                        String(r['Clean Name']).toLowerCase().includes(search)
-                    );
-                }
+                if (status !== 'all') filtered = filtered.filter(r => r['Status'] === status);
+                if (qtyFilter === 'low') filtered = filtered.filter(r => r['Stock Status'] === '⚠️ Low Stock');
+                else if (qtyFilter === 'ok') filtered = filtered.filter(r => r['Stock Status'] === '✅ Enough');
+                if (search) filtered = filtered.filter(r => 
+                    String(r['Pull Sheet Name'] || r['Search Query'] || '').toLowerCase().includes(search) ||
+                    String(r['Location Display']).toLowerCase().includes(search) ||
+                    String(r['Clean Name']).toLowerCase().includes(search)
+                );
                 
                 const stats = this.engine.generateStats();
                 if (stats) {
                     this.statsRow.innerHTML = `
-                        <div class="stat-box"><div class="stat-number blue">${stats.total}</div><div class="stat-label">${isQuick ? 'Cards Searched' : 'Magic Cards in Order'}</div></div>
+                        <div class="stat-box"><div class="stat-number blue">${stats.total}</div><div class="stat-label">${isQuick ? 'Cards Searched' : 'Cards in Order'}</div></div>
                         <div class="stat-box"><div class="stat-number green">${stats.found}</div><div class="stat-label">✅ Found</div></div>
                         <div class="stat-box"><div class="stat-number red">${stats.notFound}</div><div class="stat-label">❌ Not Found</div></div>
                         <div class="stat-box"><div class="stat-number">${stats.rate}%</div><div class="stat-label">Match Rate</div></div>
@@ -1417,7 +1124,7 @@
                 
                 const totalQty = this.results.reduce((sum, r) => sum + (r['Quantity'] || 1), 0);
                 const availQty = this.results.reduce((sum, r) => sum + (r['Total Available'] || r['Available Qty'] || 0), 0);
-                this.stockSummary.textContent = `📦 Total Ordered: ${totalQty} | Available: ${availQty}`;
+                this.stockSummary.textContent = `📦 Total: ${totalQty} | Available: ${availQty}`;
                 
                 if (filtered.length === 0) {
                     this.tableContainer.innerHTML = '<div style="padding: 40px; text-align: center; color: #6b7280;">No matches</div>';
@@ -1427,14 +1134,13 @@
                 let html = `<table>
                     <thead><tr>
                         <th>Status</th>
-                        <th>${isQuick ? 'Searched Card' : 'Pull Sheet Name'}</th>
-                        <th>🧹 Clean Name</th>
+                        <th>${isQuick ? 'Searched Card' : 'Card Name'}</th>
                         <th>Set</th>
                         <th>#</th>
                         <th>Cond</th>
                         <th>Qty</th>
                         <th>📍 Locations</th>
-                        <th>Match Type</th>
+                        <th>Match</th>
                         <th>Available</th>
                         <th>Stock</th>
                     </tr></thead><tbody>`;
@@ -1445,19 +1151,15 @@
                         `<span class="qty-warning">⚠️ ${row['Total Available'] || row['Available Qty']}/${row['Quantity'] || 1}</span>` : 
                         `<span class="qty-ok">✅ ${row['Total Available'] || row['Available Qty']}/${row['Quantity'] || 1}</span>`;
                     
-                    const cleanDisplay = row['Clean Name'] || '-';
-                    const matchType = row['Match Type'] || 'N/A';
-                    const matchScore = row['Match Score'] || 0;
-                    const matchDisplay = matchScore > 0 ? `${matchType} (${matchScore}%)` : 'No Match';
+                    const matchDisplay = row['Match Score'] > 0 ? `${row['Match Type']} (${row['Match Score']}%)` : 'No Match';
                     
                     let locationDisplay = '';
                     if (row['Status'] === 'Found' && row['Locations'] && row['Locations'].length > 0) {
                         const locItems = row['Locations'].map((loc, idx) => {
                             const qtyText = loc.quantity > 0 ? ` (${loc.quantity})` : '';
                             const condHint = loc.condition ? ` (${loc.condition})` : '';
-                            const setHint = loc.set ? ` ${loc.set}` : '';
                             return `<div class="location-item">
-                                <span class="location-badge">${loc.location}${qtyText}${condHint}${setHint}</span>
+                                <span class="location-badge">${loc.location}${qtyText}${condHint}</span>
                                 ${idx === 0 ? '⭐' : ''}
                             </div>`;
                         });
@@ -1471,12 +1173,11 @@
                     
                     const nameDisplay = isQuick ? 
                         (row['Search Query'] || row['Pull Sheet Name'] || '') : 
-                        (row['Pull Sheet Name'] || '');
+                        (row['Pull Sheet Name'] || row['Clean Name'] || '');
                     
                     html += `<tr>
                         <td><span class="${statusClass}">${row['Status']}</span></td>
                         <td style="font-size:13px;max-width:150px;word-break:break-all;">${nameDisplay}</td>
-                        <td style="font-size:12px;color:#6b7280;">${cleanDisplay}</td>
                         <td>${row['Set'] || ''}</td>
                         <td>${row['Number'] || ''}</td>
                         <td>${row['Condition'] || ''}</td>
@@ -1492,13 +1193,9 @@
                 this.tableContainer.innerHTML = html;
             }
             
-            // ============================================================
-            // PRINT PICKING LIST
-            // ============================================================
-            
             printPickingList() {
                 if (!this.results || this.results.length === 0) {
-                    alert('No results to print. Please process orders first.');
+                    alert('No results to print.');
                     return;
                 }
                 
@@ -1628,13 +1325,13 @@
                                 </div>
                                 <div style="display:flex;align-items:center;gap:15px;">
                                     <span style="font-weight:600;">Qty: ${item['Quantity']}</span>
-                                    <span style="color: #ef4444; font-weight:500;">Check storage/update inventory</span>
+                                    <span style="color: #ef4444; font-weight:500;">Check storage</span>
                                 </div>
                             </div>
                         `;
                     }
                 } else {
-                    notFoundHTML = '<p style="color: #22c55e; padding: 10px;">🎉 All items found in inventory!</p>';
+                    notFoundHTML = '<p style="color: #22c55e; padding: 10px;">🎉 All items found!</p>';
                 }
                 document.getElementById('printNotFoundList').innerHTML = notFoundHTML;
                 
@@ -1643,10 +1340,6 @@
                 
                 window.print();
             }
-            
-            // ============================================================
-            // DOWNLOAD EXCEL
-            // ============================================================
             
             download() {
                 if (!this.results || this.results.length === 0) {
@@ -1666,10 +1359,6 @@
                 link.click();
             }
             
-            // ============================================================
-            // CLEAR ALL
-            // ============================================================
-            
             clearAll() {
                 this.inventoryFile = null;
                 this.pullSheetFile = null;
@@ -1680,7 +1369,7 @@
                 this.pullSheetFileName.textContent = 'Drop Pull Sheet CSV here';
                 this.pullSheetFileDetails.textContent = '';
                 this.pullSheetZone.classList.remove('has-file');
-                this.pullSheetStatusText.textContent = 'None loaded';
+                this.pullSheetStatusText.textContent = 'None';
                 
                 this.quickLookupInput.value = '';
                 this.quickLookupStatus.innerHTML = '';
@@ -1697,9 +1386,6 @@
                 this.statusFilter.value = 'all';
                 this.qtyFilter.value = 'all';
                 
-                document.getElementById('debugBox').innerHTML = '';
-                debugLines = [];
-                
                 this.engine.pullSheet = [];
                 this.engine.filteredPullSheet = [];
                 this.engine.results = [];
@@ -1711,90 +1397,6 @@
                 } else {
                     this.loadDefaultInventory();
                 }
-            }
-            
-            // ============================================================
-            // LOAD SAMPLE DATA
-            // ============================================================
-            
-            loadSample() {
-                const sampleInventory = [
-                    ['Product Name', 'Where is it?', 'Condition', 'Add to Quantity', 'Total Quantity', 'Set Name', 'Number', 'Rarity'],
-                    ['Misty Rainforest', 'Box 12 - Shelf A - Section 3', 'Near Mint', '3', '5', 'Modern Horizons 2', '123', 'Rare'],
-                    ['Misty Rainforest', 'Box 14 - Shelf B - Section 1', 'Near Mint', '2', '3', 'Modern Horizons 2', '123', 'Rare'],
-                    ['Misty Rainforest', 'Box 8 - Shelf C - Section 2', 'Lightly Played', '1', '2', 'Modern Horizons 2', '123', 'Rare'],
-                    ['Scalding Tarn', 'Box 12 - Shelf A - Section 1', 'Near Mint', '2', '4', 'Modern Horizons 2', '124', 'Rare'],
-                    ['Scalding Tarn', 'Box 20 - Shelf D - Section 3', 'Lightly Played', '3', '5', 'Modern Horizons 2', '124', 'Rare'],
-                    ['Arid Mesa', 'Box 14 - Shelf B - Section 2', 'Lightly Played', '1', '2', 'Modern Horizons 2', '125', 'Rare'],
-                    ['Marsh Flats', 'Box 12 - Shelf A - Section 2', 'Near Mint', '4', '6', 'Modern Horizons 2', '126', 'Rare'],
-                    ['Force of Will', 'Box 8 - Shelf C - Section 1', 'Near Mint', '2', '3', 'Double Masters', '27', 'Mythic'],
-                    ['Rayquaza VMAX', 'Box 20 - Shelf D - Section 1', 'Near Mint', '2', '3', 'Evolving Skies', '123', 'Mythic'],
-                    ['Dragonite V', 'Box 20 - Shelf D - Section 2', 'Near Mint', '3', '5', 'Evolving Skies', '234', 'Rare'],
-                    ['Accesscode Talker', 'Box 30 - Shelf F - Section 1', 'Near Mint', '2', '4', 'Phantom Rage', '86', 'Rare'],
-                ];
-                
-                const samplePullSheet = [
-                    ['Product Line', 'Product Name', 'Condition', 'Set', 'Number', 'Quantity'],
-                    ['Magic', 'E80CF076-C15CFB-5F435|E80CF076-D6DE05-8E8A5 Misty Rainforest', 'Near Mint', 'Modern Horizons 2', '123', '2'],
-                    ['Magic', 'Scalding Tarn', 'Near Mint', 'Modern Horizons 2', '124', '1'],
-                    ['Magic', 'Marsh Flats', 'Near Mint', 'Modern Horizons 2', '126', '2'],
-                    ['Magic', 'Arid Mesa', 'Lightly Played', 'Modern Horizons 2', '125', '1'],
-                    ['Magic', 'Force of Will', 'Near Mint', 'Double Masters', '27', '1'],
-                    ['Pokemon', 'Rayquaza VMAX', 'Near Mint', 'Evolving Skies', '123', '1'],
-                    ['Magic', 'Dragonite V', 'Near Mint', 'Evolving Skies', '234', '1'],
-                    ['Magic', 'Accesscode Talker', 'Near Mint', 'Phantom Rage', '86', '1'],
-                    ['Magic', 'Black Lotus', 'Near Mint', 'Alpha', '1', '1'],
-                    ['Magic', 'Scalding Tarn', 'Near Mint', 'Modern Horizons 2', '124', '3'],
-                ];
-                
-                this.engine.inventory = sampleInventory.map(row => {
-                    const obj = {};
-                    sampleInventory[0].forEach((header, i) => {
-                        obj[header] = row[i] || '';
-                    });
-                    return obj;
-                });
-                this.inventoryLoaded = true;
-                
-                this.setStatus(
-                    'success',
-                    `📝 Sample inventory loaded (${this.engine.inventory.length} rows)`,
-                    'Built-in sample data',
-                    '📝 Sample'
-                );
-                
-                this.inventoryFileName.textContent = '📝 Sample Inventory (loaded)';
-                this.inventoryFileDetails.textContent = `${this.engine.inventory.length} rows`;
-                this.inventoryZone.classList.add('has-file');
-                debug(`📦 Sample inventory loaded: ${this.engine.inventory.length} rows`, 'success');
-                
-                const pullData = samplePullSheet.map(row => {
-                    const obj = {};
-                    samplePullSheet[0].forEach((header, i) => {
-                        obj[header] = row[i] || '';
-                    });
-                    return obj;
-                });
-                
-                this.engine.pullSheet = pullData;
-                this.engine.filteredPullSheet = pullData.filter(row => {
-                    const productLine = this.engine.findColumn(row, ['Product Line', 'ProductLine', 'Line']);
-                    return productLine && productLine.trim().toLowerCase() === PRODUCT_LINE_FILTER.toLowerCase();
-                });
-                this.engine.filteredCount = this.engine.filteredPullSheet.length;
-                this.engine.totalPullSheetRows = pullData.length;
-                this.engine.isQuickLookup = false;
-                
-                this.pullSheetLoaded = true;
-                this.pullSheetFileName.textContent = `✅ Sample Pull Sheet - ${this.engine.filteredCount} Magic cards`;
-                this.pullSheetFileDetails.textContent = `${this.engine.filteredCount} of ${pullData.length} rows kept`;
-                this.pullSheetZone.classList.add('has-file');
-                this.pullSheetStatusText.textContent = `${this.engine.filteredCount} cards`;
-                
-                debug(`📄 Sample pull sheet loaded: ${this.engine.filteredCount} Magic cards`, 'success');
-                
-                this.updateFindButton();
-                setTimeout(() => this.findLocations(), 500);
             }
         }
         
