@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Card Location Lookup</title>
+    <title>Card Location Lookup - Inventory Management</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     
@@ -59,6 +59,11 @@
         .btn-success:hover { background: #16a34a; }
         .btn-print { background: #8b5cf6; color: white; }
         .btn-print:hover { background: #7c3aed; }
+        .btn-warning { background: #f59e0b; color: white; }
+        .btn-warning:hover { background: #d97706; }
+        .btn-danger { background: #ef4444; color: white; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-sm { padding: 6px 14px; font-size: 13px; }
         
         .results-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin: 20px 0; }
         .stat-box { background: white; padding: 20px; border-radius: 10px; text-align: center; border: 1px solid #e5e7eb; }
@@ -70,17 +75,22 @@
         .stat-number.purple { color: #8b5cf6; }
         .stat-label { color: #6b7280; font-size: 0.9rem; }
         
-        .table-wrap { overflow-x: auto; margin-top: 20px; border-radius: 8px; border: 1px solid #e5e7eb; max-height: 500px; overflow-y: auto; }
+        .table-wrap { overflow-x: auto; margin-top: 20px; border-radius: 8px; border: 1px solid #e5e7eb; max-height: 600px; overflow-y: auto; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
         thead { background: #f8fafc; border-bottom: 2px solid #e5e7eb; position: sticky; top: 0; z-index: 10; }
         th { padding: 12px 15px; text-align: left; font-weight: 600; background: #f8fafc; white-space: nowrap; }
         td { padding: 10px 15px; border-bottom: 1px solid #f1f3f5; vertical-align: top; }
         tr:hover { background: #f8fafc; }
+        tr.pulled { background: #fef3c7; }
+        tr.pulled td { border-bottom-color: #f59e0b; }
         
         .found { background: #dcfce7; color: #166534; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
         .notfound { background: #fee2e2; color: #991b1b; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
-        .location-badge { background: #dbeafe; color: #1e40af; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; display: inline-block; margin: 2px 0; }
-        .location-badge-diff { background: #f3e8ff; color: #6d28d9; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; display: inline-block; margin: 2px 0; }
+        .pulled-badge { background: #fef3c7; color: #92400e; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
+        .location-badge { background: #dbeafe; color: #1e40af; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; display: inline-block; margin: 2px 0; cursor: pointer; }
+        .location-badge:hover { opacity: 0.8; }
+        .location-badge.selected { background: #22c55e; color: white; }
+        .location-badge.depleted { background: #e5e7eb; color: #6b7280; text-decoration: line-through; cursor: not-allowed; }
         .multiple-locations { background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 500; display: inline-block; margin-left: 5px; }
         .qty-warning { background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; display: inline-block; }
         .qty-ok { background: #dcfce7; color: #166534; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; display: inline-block; }
@@ -207,6 +217,54 @@
             color: #1a1a2e;
         }
         
+        .pull-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .pull-controls input[type="number"] {
+            width: 60px;
+            padding: 4px 6px;
+            border: 2px solid #e5e7eb;
+            border-radius: 6px;
+            font-size: 13px;
+            text-align: center;
+        }
+        .pull-controls input[type="number"]:focus {
+            outline: none;
+            border-color: #6366f1;
+        }
+        
+        .pulled-log {
+            background: #f8fafc;
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            border-left: 4px solid #f59e0b;
+            font-size: 13px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        .pulled-log .log-entry {
+            padding: 3px 0;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        .pulled-log .log-entry:last-child { border-bottom: none; }
+        .pulled-log .log-card { font-weight: 600; }
+        .pulled-log .log-location { color: #1e40af; }
+        .pulled-log .log-qty { color: #6b7280; }
+        
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+        
         @media (max-width: 768px) {
             .upload-grid { grid-template-columns: 1fr; }
             .upload-zone { padding: 20px; }
@@ -220,7 +278,7 @@
             .header { background: #1a1a2e !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
             .card { box-shadow: none !important; border: 1px solid #ddd; break-inside: avoid; }
             .table-wrap { max-height: none !important; overflow: visible !important; }
-            .found, .notfound, .location-badge, .qty-warning, .qty-ok { 
+            .found, .notfound, .location-badge, .qty-warning, .qty-ok, .pulled-badge { 
                 -webkit-print-color-adjust: exact !important; 
                 print-color-adjust: exact !important; 
             }
@@ -298,15 +356,25 @@
         
         #printContent { display: none; }
         
-        /* Remove extra note */
-        .info-note { display: none; }
+        .selection-mode-indicator {
+            background: #dbeafe;
+            padding: 8px 15px;
+            border-radius: 8px;
+            font-size: 13px;
+            color: #1e40af;
+            display: none;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .selection-mode-indicator.active { display: flex; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header no-print">
             <h1>🔍 Card Location Lookup</h1>
-            <p>Find where your cards are stored</p>
+            <p>Find and pull cards from inventory</p>
         </div>
         
         <!-- Main Content -->
@@ -375,6 +443,25 @@
             <div id="resultsSection" class="hidden">
                 <div class="results-stats no-print" id="statsRow"></div>
                 
+                <!-- Selection Mode Indicator -->
+                <div class="selection-mode-indicator" id="selectionIndicator">
+                    <span>✋ Select a location to pull from</span>
+                    <button class="btn btn-secondary btn-sm" id="cancelSelectionBtn">Cancel</button>
+                </div>
+                
+                <!-- Pull Log -->
+                <div class="card no-print" id="pullLogCard" style="display:none;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+                        <h4>📋 Pull Log</h4>
+                        <span style="font-size:13px;color:#6b7280;" id="pullLogCount">0 items pulled</span>
+                    </div>
+                    <div class="pulled-log" id="pullLog"></div>
+                    <div class="action-buttons">
+                        <button class="btn btn-success btn-sm" id="downloadUpdatedInventoryBtn">📥 Download Updated Inventory</button>
+                        <button class="btn btn-warning btn-sm" id="undoAllPullsBtn">↩️ Undo All Pulls</button>
+                    </div>
+                </div>
+                
                 <div class="card">
                     <div class="toolbar no-print">
                         <input type="text" class="search-box" id="searchBox" placeholder="🔍 Filter results...">
@@ -382,6 +469,7 @@
                             <option value="all">All</option>
                             <option value="Found">✅ Found</option>
                             <option value="Not Found">❌ Not Found</option>
+                            <option value="Pulled">📦 Pulled</option>
                         </select>
                         <select class="select-box" id="qtyFilter">
                             <option value="all">All</option>
@@ -435,7 +523,73 @@
         const PRODUCT_LINE_FILTER = 'Magic';
         
         // ============================================================
-        // LOOKUP ENGINE
+        // PULL TRACKING
+        // ============================================================
+        
+        let pullLog = [];
+        let inventoryModifications = {};
+        
+        function recordPull(cardName, location, quantity, pulledFrom, originalQty) {
+            const entry = {
+                id: Date.now() + Math.random() * 1000,
+                timestamp: new Date().toLocaleString(),
+                cardName: cardName,
+                location: location,
+                quantity: quantity,
+                pulledFrom: pulledFrom,
+                originalQty: originalQty,
+                newQty: originalQty - quantity
+            };
+            pullLog.push(entry);
+            
+            const key = JSON.stringify(pulledFrom);
+            if (!inventoryModifications[key]) {
+                inventoryModifications[key] = {
+                    originalQty: originalQty,
+                    newQty: originalQty - quantity,
+                    pulled: []
+                };
+            } else {
+                inventoryModifications[key].newQty -= quantity;
+                inventoryModifications[key].pulled.push(entry);
+            }
+            
+            return entry;
+        }
+        
+        function undoAllPulls() {
+            pullLog = [];
+            inventoryModifications = {};
+            document.getElementById('pullLogCard').style.display = 'none';
+            document.getElementById('pullLog').innerHTML = '';
+            document.getElementById('pullLogCount').textContent = '0 items pulled';
+        }
+        
+        function getUpdatedInventory(originalInventory) {
+            const updated = originalInventory.map(item => ({...item}));
+            
+            for (const [key, mod] of Object.entries(inventoryModifications)) {
+                const item = updated.find((_, idx) => {
+                    const itemKey = JSON.stringify(_);
+                    return itemKey === key;
+                });
+                if (item) {
+                    const currentQty = parseInt(item['Total Quantity'] || 0);
+                    const newQty = currentQty - mod.pulled.reduce((sum, p) => sum + p.quantity, 0);
+                    item['Total Quantity'] = String(Math.max(0, newQty));
+                    
+                    if (item['Add to Quantity'] !== undefined) {
+                        const addQty = parseInt(item['Add to Quantity'] || 0);
+                        item['Add to Quantity'] = String(Math.max(0, addQty - mod.pulled.reduce((sum, p) => sum + p.quantity, 0)));
+                    }
+                }
+            }
+            
+            return updated;
+        }
+        
+        // ============================================================
+        // LOOKUP ENGINE - WITH FIXED CSV PARSING
         // ============================================================
         
         class LookupEngine {
@@ -450,26 +604,106 @@
                 this.isQuickLookup = false;
             }
             
+            // ============================================================
+            // FIXED: More forgiving CSV parser
+            // ============================================================
             parseCSV(file) {
                 return new Promise((resolve, reject) => {
-                    Papa.parse(file, {
+                    // Read the file as text first
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        const csvText = e.target.result;
+                        
+                        // Use Papa Parse with forgiving settings
+                        Papa.parse(csvText, {
+                            header: true,
+                            skipEmptyLines: true,
+                            trimHeaders: true,
+                            transformHeader: (header) => header.trim(),
+                            dynamicTyping: false,
+                            // CRITICAL: Don't enforce column count
+                            skipInvalidLines: true,
+                            // Handle quotes properly
+                            quotes: false,
+                            // Let Papa Parse handle the parsing loosely
+                            complete: (results) => {
+                                // Check for errors but don't fail on "too few fields"
+                                const errors = results.errors.filter(e => 
+                                    !e.message.includes('Too few fields') && 
+                                    !e.message.includes('Too many fields')
+                                );
+                                
+                                if (errors.length > 0) {
+                                    console.warn('CSV parsing warnings:', errors);
+                                }
+                                
+                                // Filter out empty rows
+                                const data = results.data.filter(row => {
+                                    return Object.values(row).some(val => 
+                                        val && String(val).trim() !== ''
+                                    );
+                                });
+                                
+                                console.log(`📊 Parsed ${data.length} rows from ${file.name}`);
+                                
+                                if (data.length === 0) {
+                                    reject(new Error('No data found in CSV'));
+                                    return;
+                                }
+                                
+                                resolve(data);
+                            },
+                            error: (error) => {
+                                reject(error);
+                            }
+                        });
+                    };
+                    reader.onerror = function() {
+                        reject(new Error('Failed to read file'));
+                    };
+                    reader.readAsText(file);
+                });
+            }
+            
+            // Parse CSV from text (for default inventory)
+            parseCSVText(csvText, filename = 'local file') {
+                return new Promise((resolve, reject) => {
+                    Papa.parse(csvText, {
                         header: true,
                         skipEmptyLines: true,
                         trimHeaders: true,
                         transformHeader: (header) => header.trim(),
                         dynamicTyping: false,
                         skipInvalidLines: true,
+                        quotes: false,
                         complete: (results) => {
-                            if (results.errors.length > 0) {
-                                reject(new Error('CSV parsing error: ' + results.errors[0].message));
-                            } else {
-                                const data = results.data.filter(row => {
-                                    return Object.values(row).some(val => val && String(val).trim() !== '');
-                                });
-                                resolve(data);
+                            const errors = results.errors.filter(e => 
+                                !e.message.includes('Too few fields') && 
+                                !e.message.includes('Too many fields')
+                            );
+                            
+                            if (errors.length > 0) {
+                                console.warn('CSV parsing warnings:', errors);
                             }
+                            
+                            const data = results.data.filter(row => {
+                                return Object.values(row).some(val => 
+                                    val && String(val).trim() !== ''
+                                );
+                            });
+                            
+                            console.log(`📊 Parsed ${data.length} rows from ${filename}`);
+                            
+                            if (data.length === 0) {
+                                reject(new Error('No data found in CSV'));
+                                return;
+                            }
+                            
+                            resolve(data);
                         },
-                        error: (error) => reject(error)
+                        error: (error) => {
+                            reject(error);
+                        }
                     });
                 });
             }
@@ -480,28 +714,11 @@
             }
             
             loadInventoryFromCSV(csvText, filename = 'local file') {
-                return new Promise((resolve, reject) => {
-                    Papa.parse(csvText, {
-                        header: true,
-                        skipEmptyLines: true,
-                        trimHeaders: true,
-                        transformHeader: (header) => header.trim(),
-                        dynamicTyping: false,
-                        skipInvalidLines: true,
-                        complete: (results) => {
-                            if (results.errors.length > 0) {
-                                reject(new Error('CSV parsing error: ' + results.errors[0].message));
-                            } else {
-                                const data = results.data.filter(row => {
-                                    return Object.values(row).some(val => val && String(val).trim() !== '');
-                                });
-                                this.inventory = data;
-                                resolve(data);
-                            }
-                        },
-                        error: (error) => reject(error)
+                return this.parseCSVText(csvText, filename)
+                    .then(data => {
+                        this.inventory = data;
+                        return data;
                     });
-                });
             }
             
             async loadPullSheet(file) {
@@ -521,10 +738,12 @@
             findColumn(row, possibleNames) {
                 if (!row) return '';
                 for (const name of possibleNames) {
-                    if (row[name] !== undefined) return row[name];
+                    if (row[name] !== undefined && row[name] !== null) {
+                        return String(row[name]).trim();
+                    }
                     for (const key of Object.keys(row)) {
-                        if (key.toLowerCase() === name.toLowerCase()) {
-                            return row[key];
+                        if (key && key.toLowerCase() === name.toLowerCase()) {
+                            return String(row[key]).trim();
                         }
                     }
                 }
@@ -561,6 +780,10 @@
                     const itemNumber = clean(this.findColumn(item, ['Number', 'Card Number', 'Card#']));
                     const itemSet = clean(this.findColumn(item, ['Set Name', 'Set', 'SetName']));
                     const itemCondition = clean(this.findColumn(item, ['Condition', 'Cond']));
+                    const itemQty = parseInt(this.findColumn(item, ['Add to Quantity', 'AddToQuantity', 'Add Quantity'])) || 
+                                    parseInt(this.findColumn(item, ['Total Quantity', 'TotalQuantity', 'Quantity', 'Qty'])) || 0;
+                    
+                    if (itemQty <= 0) continue;
                     
                     if (itemName === searchName && 
                         itemNumber === searchNumber && 
@@ -637,6 +860,14 @@
                 return 0;
             }
             
+            getCurrentQuantity(item, originalItem) {
+                const itemKey = JSON.stringify(originalItem);
+                if (inventoryModifications[itemKey]) {
+                    return inventoryModifications[itemKey].newQty;
+                }
+                return this.getAvailableQuantity(item);
+            }
+            
             quickLookup(cardList) {
                 if (!this.inventory || this.inventory.length === 0) {
                     throw new Error('Inventory is empty. Load inventory first.');
@@ -686,7 +917,9 @@
                         'Match Score': 0,
                         'Inventory Name': '',
                         'Available Qty': 0,
-                        'Stock Status': 'No Stock'
+                        'Stock Status': 'No Stock',
+                        'OriginalItem': null,
+                        'IsPulled': false
                     };
                     
                     if (matches.length > 0) {
@@ -694,20 +927,31 @@
                         result['Status'] = 'Found';
                         result['Match Type'] = bestMatch.matchType;
                         result['Match Score'] = bestMatch.score;
-                        result['Locations'] = matches.map(m => ({
-                            location: this.findColumn(m.item, ['Where is it?', 'Location', 'Box Location']) || 'Unknown',
-                            quantity: this.getAvailableQuantity(m.item),
-                            condition: this.findColumn(m.item, ['Condition', 'Cond']) || '',
-                            set: this.findColumn(m.item, ['Set Name', 'Set', 'SetName']) || '',
-                            rarity: this.findColumn(m.item, ['Rarity']) || '',
-                            inventoryName: this.findColumn(m.item, ['Product Name', 'ProductName', 'Name', 'Card Name']) || ''
-                        }));
-                        result['Location Display'] = result['Locations'].map(l => 
+                        result['OriginalItem'] = bestMatch.item;
+                        
+                        const locationsWithQty = matches.map(m => {
+                            const currentQty = this.getCurrentQuantity(m.item, m.item);
+                            return {
+                                location: this.findColumn(m.item, ['Where is it?', 'Location', 'Box Location']) || 'Unknown',
+                                quantity: currentQty,
+                                condition: this.findColumn(m.item, ['Condition', 'Cond']) || '',
+                                set: this.findColumn(m.item, ['Set Name', 'Set', 'SetName']) || '',
+                                rarity: this.findColumn(m.item, ['Rarity']) || '',
+                                inventoryName: this.findColumn(m.item, ['Product Name', 'ProductName', 'Name', 'Card Name']) || '',
+                                originalQty: this.getAvailableQuantity(m.item),
+                                itemRef: m.item
+                            };
+                        });
+                        
+                        result['Locations'] = locationsWithQty;
+                        result['Location Display'] = locationsWithQty.map(l => 
                             `${l.location} (${l.quantity})`
                         ).join(' | ');
                         result['Inventory Name'] = this.findColumn(bestMatch.item, ['Product Name', 'ProductName', 'Name', 'Card Name']) || '';
-                        result['Available Qty'] = this.getAvailableQuantity(bestMatch.item);
-                        result['Stock Status'] = result['Available Qty'] > 0 ? '✅ In Stock' : '⚠️ Out of Stock';
+                        
+                        const totalAvailable = locationsWithQty.reduce((sum, l) => sum + l.quantity, 0);
+                        result['Available Qty'] = totalAvailable;
+                        result['Stock Status'] = totalAvailable > 0 ? '✅ In Stock' : '⚠️ Out of Stock';
                         foundCount++;
                     }
                     
@@ -758,7 +1002,9 @@
                             'Inventory Name': '',
                             'Available Qty': 0,
                             'Stock Status': 'No Stock',
-                            'MultipleLocations': false
+                            'MultipleLocations': false,
+                            'OriginalItem': null,
+                            'IsPulled': false
                         };
                         this.results.push(result);
                         continue;
@@ -782,7 +1028,9 @@
                         'Inventory Name': '',
                         'Available Qty': 0,
                         'Stock Status': 'No Stock',
-                        'MultipleLocations': false
+                        'MultipleLocations': false,
+                        'OriginalItem': null,
+                        'IsPulled': false
                     };
                     
                     if (matches.length > 0) {
@@ -790,30 +1038,37 @@
                         result['Status'] = 'Found';
                         result['Match Type'] = bestMatch.matchType;
                         result['Match Score'] = bestMatch.score;
-                        result['Locations'] = matches.map(m => ({
-                            location: this.findColumn(m.item, ['Where is it?', 'Location', 'Box Location']) || 'Unknown',
-                            quantity: this.getAvailableQuantity(m.item),
-                            condition: this.findColumn(m.item, ['Condition', 'Cond']) || '',
-                            set: this.findColumn(m.item, ['Set Name', 'Set', 'SetName']) || '',
-                            rarity: this.findColumn(m.item, ['Rarity']) || '',
-                            inventoryName: this.findColumn(m.item, ['Product Name', 'ProductName', 'Name', 'Card Name']) || ''
-                        }));
+                        result['OriginalItem'] = bestMatch.item;
+                        
+                        const locationsWithQty = matches.map(m => {
+                            const currentQty = this.getCurrentQuantity(m.item, m.item);
+                            return {
+                                location: this.findColumn(m.item, ['Where is it?', 'Location', 'Box Location']) || 'Unknown',
+                                quantity: currentQty,
+                                condition: this.findColumn(m.item, ['Condition', 'Cond']) || '',
+                                set: this.findColumn(m.item, ['Set Name', 'Set', 'SetName']) || '',
+                                rarity: this.findColumn(m.item, ['Rarity']) || '',
+                                inventoryName: this.findColumn(m.item, ['Product Name', 'ProductName', 'Name', 'Card Name']) || '',
+                                originalQty: this.getAvailableQuantity(m.item),
+                                itemRef: m.item
+                            };
+                        });
+                        
+                        result['Locations'] = locationsWithQty;
                         result['MultipleLocations'] = matches.length > 1;
                         
-                        const locationParts = matches.map(m => {
-                            const qtyDisplay = this.getAvailableQuantity(m.item) > 0 ? 
-                                ` (${this.getAvailableQuantity(m.item)})` : '';
-                            return `${this.findColumn(m.item, ['Where is it?', 'Location', 'Box Location']) || 'Unknown'}${qtyDisplay}`;
-                        });
+                        const locationParts = locationsWithQty.map(l => 
+                            `${l.location} (${l.quantity})`
+                        );
                         result['Location Display'] = locationParts.join(' | ');
                         
-                        const firstMatch = matches[0];
-                        result['Inventory Name'] = this.findColumn(firstMatch.item, ['Product Name', 'ProductName', 'Name', 'Card Name']) || '';
-                        result['Available Qty'] = this.getAvailableQuantity(firstMatch.item);
-                        
-                        const totalAvailable = matches.reduce((sum, m) => sum + this.getAvailableQuantity(m.item), 0);
+                        const totalAvailable = locationsWithQty.reduce((sum, l) => sum + l.quantity, 0);
+                        result['Available Qty'] = totalAvailable;
                         result['Stock Status'] = totalAvailable >= qty ? '✅ Enough' : '⚠️ Low Stock';
                         result['Total Available'] = totalAvailable;
+                        
+                        const anyPulled = locationsWithQty.some(l => l.quantity < l.originalQty);
+                        result['IsPulled'] = anyPulled;
                         
                         found++;
                         
@@ -834,6 +1089,7 @@
                 const found = this.results.filter(r => r['Status'] === 'Found').length;
                 const lowStock = this.results.filter(r => r['Stock Status'] === '⚠️ Low Stock').length;
                 const multiple = this.results.filter(r => r['MultipleLocations'] === true).length;
+                const pulled = this.results.filter(r => r['IsPulled'] === true).length;
                 return { 
                     total, 
                     found, 
@@ -841,6 +1097,7 @@
                     rate: total > 0 ? ((found/total)*100).toFixed(1) : 0, 
                     lowStock, 
                     multiple,
+                    pulled,
                     isQuickLookup: this.isQuickLookup
                 };
             }
@@ -858,6 +1115,8 @@
                 this.results = [];
                 this.inventoryLoaded = false;
                 this.pullSheetLoaded = false;
+                this.selectionMode = false;
+                this.selectedCard = null;
                 
                 this.initElements();
                 this.bindEvents();
@@ -898,6 +1157,14 @@
                 this.statusFilter = document.getElementById('statusFilter');
                 this.qtyFilter = document.getElementById('qtyFilter');
                 this.loading = document.getElementById('loading');
+                
+                this.pullLogCard = document.getElementById('pullLogCard');
+                this.pullLog = document.getElementById('pullLog');
+                this.pullLogCount = document.getElementById('pullLogCount');
+                this.selectionIndicator = document.getElementById('selectionIndicator');
+                this.cancelSelectionBtn = document.getElementById('cancelSelectionBtn');
+                this.downloadUpdatedInventoryBtn = document.getElementById('downloadUpdatedInventoryBtn');
+                this.undoAllPullsBtn = document.getElementById('undoAllPullsBtn');
             }
             
             bindEvents() {
@@ -936,6 +1203,15 @@
                 this.clearBtn.addEventListener('click', () => this.clearAll());
                 this.downloadBtn.addEventListener('click', () => this.download());
                 this.printBtn.addEventListener('click', () => this.printPickingList());
+                this.cancelSelectionBtn.addEventListener('click', () => this.exitSelectionMode());
+                this.downloadUpdatedInventoryBtn.addEventListener('click', () => this.downloadUpdatedInventory());
+                this.undoAllPullsBtn.addEventListener('click', () => {
+                    if (confirm('Undo all pulls? This will restore all inventory quantities.')) {
+                        undoAllPulls();
+                        this.updatePullLogUI();
+                        this.render();
+                    }
+                });
                 
                 this.searchBox.addEventListener('input', () => this.render());
                 this.statusFilter.addEventListener('change', () => this.render());
@@ -1081,6 +1357,7 @@
                     
                     this.render();
                     this.resultsSection.classList.remove('hidden');
+                    this.updatePullLogUI();
                 } catch (err) {
                     alert('Error: ' + err.message);
                 }
@@ -1088,6 +1365,112 @@
                 this.loading.style.display = 'none';
                 this.findBtn.disabled = false;
                 this.findBtn.textContent = '🔍 Find Locations';
+            }
+            
+            enterSelectionMode(cardResult) {
+                this.selectionMode = true;
+                this.selectedCard = cardResult;
+                this.selectionIndicator.classList.add('active');
+                document.querySelectorAll('.location-badge').forEach(el => {
+                    el.style.cursor = 'pointer';
+                });
+                // Highlight the card row
+                document.querySelectorAll('tr').forEach(tr => {
+                    tr.style.background = 'transparent';
+                });
+                const rows = document.querySelectorAll('tr');
+                for (const row of rows) {
+                    if (row.dataset.cardId === String(cardResult['Search Query'] || cardResult['Pull Sheet Name'] || '')) {
+                        row.style.background = '#dbeafe';
+                        break;
+                    }
+                }
+            }
+            
+            exitSelectionMode() {
+                this.selectionMode = false;
+                this.selectedCard = null;
+                this.selectionIndicator.classList.remove('active');
+                document.querySelectorAll('.location-badge').forEach(el => {
+                    el.style.cursor = 'default';
+                });
+                document.querySelectorAll('tr').forEach(tr => {
+                    tr.style.background = '';
+                });
+            }
+            
+            handlePull(cardResult, locationIndex, quantity) {
+                const location = cardResult.Locations[locationIndex];
+                if (!location) return;
+                
+                if (location.quantity <= 0) {
+                    alert('This location is depleted.');
+                    return;
+                }
+                
+                const pullQty = Math.min(quantity, location.quantity, cardResult.Quantity || 1);
+                if (pullQty <= 0) return;
+                
+                const entry = recordPull(
+                    cardResult['Clean Name'] || cardResult['Pull Sheet Name'] || cardResult['Search Query'] || '',
+                    location.location,
+                    pullQty,
+                    location.itemRef,
+                    location.originalQty || location.quantity
+                );
+                
+                location.quantity -= pullQty;
+                cardResult['IsPulled'] = true;
+                
+                const totalAvailable = cardResult.Locations.reduce((sum, l) => sum + l.quantity, 0);
+                cardResult['Available Qty'] = totalAvailable;
+                cardResult['Stock Status'] = totalAvailable >= (cardResult.Quantity || 1) ? '✅ Enough' : '⚠️ Low Stock';
+                
+                this.updatePullLogUI();
+                this.render();
+                this.exitSelectionMode();
+                
+                this.quickLookupStatus.innerHTML = `<span style="color:#22c55e;">✅ Pulled ${pullQty}x ${cardResult['Clean Name'] || cardResult['Pull Sheet Name']} from ${location.location}</span>`;
+                setTimeout(() => { this.quickLookupStatus.innerHTML = ''; }, 3000);
+            }
+            
+            updatePullLogUI() {
+                if (pullLog.length === 0) {
+                    this.pullLogCard.style.display = 'none';
+                    return;
+                }
+                
+                this.pullLogCard.style.display = 'block';
+                this.pullLogCount.textContent = `${pullLog.length} items pulled`;
+                
+                let html = '';
+                for (const entry of pullLog.slice().reverse()) {
+                    html += `
+                        <div class="log-entry">
+                            <span><span class="log-card">${entry.cardName}</span> → <span class="log-location">${entry.location}</span></span>
+                            <span class="log-qty">Qty: ${entry.quantity}</span>
+                        </div>
+                    `;
+                }
+                this.pullLog.innerHTML = html;
+            }
+            
+            downloadUpdatedInventory() {
+                if (pullLog.length === 0) {
+                    alert('No pulls have been made yet.');
+                    return;
+                }
+                
+                const updatedInventory = getUpdatedInventory(this.engine.inventory);
+                const csv = Papa.unparse(updatedInventory);
+                
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `updated_inventory_${new Date().toISOString().slice(0,10)}.csv`;
+                link.click();
+                
+                alert(`✅ Updated inventory downloaded! ${pullLog.length} items were deducted.`);
             }
             
             render() {
@@ -1099,7 +1482,13 @@
                 const isQuick = this.engine.isQuickLookup;
                 
                 let filtered = this.results;
-                if (status !== 'all') filtered = filtered.filter(r => r['Status'] === status);
+                if (status !== 'all') {
+                    if (status === 'Pulled') {
+                        filtered = filtered.filter(r => r['IsPulled'] === true);
+                    } else {
+                        filtered = filtered.filter(r => r['Status'] === status);
+                    }
+                }
                 if (qtyFilter === 'low') filtered = filtered.filter(r => r['Stock Status'] === '⚠️ Low Stock');
                 else if (qtyFilter === 'ok') filtered = filtered.filter(r => r['Stock Status'] === '✅ Enough');
                 if (search) filtered = filtered.filter(r => 
@@ -1116,6 +1505,7 @@
                         <div class="stat-box"><div class="stat-number red">${stats.notFound}</div><div class="stat-label">❌ Not Found</div></div>
                         <div class="stat-box"><div class="stat-number">${stats.rate}%</div><div class="stat-label">Match Rate</div></div>
                         <div class="stat-box"><div class="stat-number orange">${stats.lowStock}</div><div class="stat-label">⚠️ Low Stock</div></div>
+                        <div class="stat-box"><div class="stat-number purple">${stats.pulled || 0}</div><div class="stat-label">📦 Pulled</div></div>
                         ${stats.multiple > 0 ? `<div class="stat-box"><div class="stat-number purple">${stats.multiple}</div><div class="stat-label">📍 Multiple Locations</div></div>` : ''}
                     `;
                 }
@@ -1146,7 +1536,9 @@
                     </tr></thead><tbody>`;
                 
                 for (const row of filtered) {
-                    const statusClass = row['Status'] === 'Found' ? 'found' : 'notfound';
+                    const statusClass = row['IsPulled'] ? 'pulled-badge' : (row['Status'] === 'Found' ? 'found' : 'notfound');
+                    const statusText = row['IsPulled'] ? '📦 Pulled' : row['Status'];
+                    
                     const stockDisplay = row['Stock Status'] === '⚠️ Low Stock' ? 
                         `<span class="qty-warning">⚠️ ${row['Total Available'] || row['Available Qty']}/${row['Quantity'] || 1}</span>` : 
                         `<span class="qty-ok">✅ ${row['Total Available'] || row['Available Qty']}/${row['Quantity'] || 1}</span>`;
@@ -1156,16 +1548,31 @@
                     let locationDisplay = '';
                     if (row['Status'] === 'Found' && row['Locations'] && row['Locations'].length > 0) {
                         const locItems = row['Locations'].map((loc, idx) => {
-                            const qtyText = loc.quantity > 0 ? ` (${loc.quantity})` : '';
+                            const isDepleted = loc.quantity <= 0;
+                            const qtyText = loc.quantity > 0 ? ` (${loc.quantity})` : ' (empty)';
                             const condHint = loc.condition ? ` (${loc.condition})` : '';
+                            const badgeClass = isDepleted ? 'location-badge depleted' : 
+                                              (row['IsPulled'] && idx === 0 ? 'location-badge selected' : 'location-badge');
+                            
+                            const clickHandler = (loc.quantity > 0 && row['Status'] === 'Found') ? 
+                                `onclick="window.ui.handleLocationClick(${idx})"` : '';
+                            
                             return `<div class="location-item">
-                                <span class="location-badge">${loc.location}${qtyText}${condHint}</span>
-                                ${idx === 0 ? '⭐' : ''}
+                                <span class="${badgeClass}" ${clickHandler} style="${loc.quantity > 0 && row['Status'] === 'Found' ? 'cursor:pointer;' : ''}">${loc.location}${qtyText}${condHint}</span>
+                                ${idx === 0 && !row['IsPulled'] ? '⭐' : ''}
+                                ${row['IsPulled'] && idx === 0 ? '📦' : ''}
                             </div>`;
                         });
                         locationDisplay = `<div class="location-list">${locItems.join('')}</div>`;
                         if (row['Locations'].length > 1) {
                             locationDisplay += `<span class="multiple-locations">${row['Locations'].length} locations</span>`;
+                        }
+                        
+                        if (row['Status'] === 'Found' && !row['IsPulled']) {
+                            const hasAvailable = row['Locations'].some(l => l.quantity > 0);
+                            if (hasAvailable && !this.selectionMode) {
+                                locationDisplay += `<button class="btn btn-warning btn-sm" style="margin-top:5px;font-size:12px;padding:3px 10px;" onclick="window.ui.enterSelectionMode(window.ui.results.find(r => r === row))">✋ Select Location</button>`;
+                            }
                         }
                     } else {
                         locationDisplay = 'Not Found';
@@ -1175,8 +1582,10 @@
                         (row['Search Query'] || row['Pull Sheet Name'] || '') : 
                         (row['Pull Sheet Name'] || row['Clean Name'] || '');
                     
-                    html += `<tr>
-                        <td><span class="${statusClass}">${row['Status']}</span></td>
+                    const rowId = nameDisplay;
+                    
+                    html += `<tr data-card-id="${rowId}" ${row['IsPulled'] ? 'class="pulled"' : ''}>
+                        <td><span class="${statusClass}">${statusText}</span></td>
                         <td style="font-size:13px;max-width:150px;word-break:break-all;">${nameDisplay}</td>
                         <td>${row['Set'] || ''}</td>
                         <td>${row['Number'] || ''}</td>
@@ -1193,30 +1602,87 @@
                 this.tableContainer.innerHTML = html;
             }
             
+            handleLocationClick(index) {
+                if (!this.selectionMode || !this.selectedCard) return;
+                if (index >= this.selectedCard.Locations.length) return;
+                
+                const location = this.selectedCard.Locations[index];
+                if (location.quantity <= 0) return;
+                
+                const qty = Math.min(location.quantity, this.selectedCard.Quantity || 1);
+                
+                if (qty <= 0) {
+                    alert('This location is depleted.');
+                    return;
+                }
+                
+                if (location.quantity > 1 && (this.selectedCard.Quantity || 1) > 1) {
+                    const userQty = prompt(`How many to pull from ${location.location}? (Available: ${location.quantity}, Needed: ${this.selectedCard.Quantity || 1})`, 
+                        Math.min(location.quantity, this.selectedCard.Quantity || 1));
+                    if (userQty === null) return;
+                    const pullQty = parseInt(userQty);
+                    if (isNaN(pullQty) || pullQty <= 0) {
+                        alert('Invalid quantity.');
+                        return;
+                    }
+                    this.handlePull(this.selectedCard, index, pullQty);
+                } else {
+                    this.handlePull(this.selectedCard, index, qty);
+                }
+            }
+            
             printPickingList() {
                 if (!this.results || this.results.length === 0) {
                     alert('No results to print.');
                     return;
                 }
                 
-                const foundItems = this.results.filter(r => r['Status'] === 'Found');
+                const foundItems = this.results.filter(r => r['Status'] === 'Found' && !r['IsPulled']);
+                const pulledItems = this.results.filter(r => r['IsPulled']);
                 const notFoundItems = this.results.filter(r => r['Status'] === 'Not Found');
                 
                 const flattenedFound = [];
                 for (const item of foundItems) {
                     if (item.Locations && item.Locations.length > 0) {
                         for (const loc of item.Locations) {
-                            flattenedFound.push({
-                                'Name': item['Clean Name'] || item['Pull Sheet Name'] || item['Search Query'] || '',
-                                'Set': loc.set || item['Set'] || '',
-                                'Number': item['Number'] || '',
-                                'Condition': loc.condition || item['Condition'] || '',
-                                'Quantity': item['Quantity'] || 1,
-                                'Location': loc.location || 'Unknown',
-                                'Available Qty': loc.quantity || 0,
-                                'Stock Status': loc.quantity >= (item['Quantity'] || 1) ? '✅ Enough' : '⚠️ Low Stock',
-                                'IsFound': true
-                            });
+                            if (loc.quantity > 0) {
+                                flattenedFound.push({
+                                    'Name': item['Clean Name'] || item['Pull Sheet Name'] || item['Search Query'] || '',
+                                    'Set': loc.set || item['Set'] || '',
+                                    'Number': item['Number'] || '',
+                                    'Condition': loc.condition || item['Condition'] || '',
+                                    'Quantity': item['Quantity'] || 1,
+                                    'Location': loc.location || 'Unknown',
+                                    'Available Qty': loc.quantity || 0,
+                                    'Stock Status': loc.quantity >= (item['Quantity'] || 1) ? '✅ Enough' : '⚠️ Low Stock',
+                                    'IsFound': true,
+                                    'IsPulled': false
+                                });
+                            }
+                        }
+                    }
+                }
+                
+                const flattenedPulled = [];
+                for (const item of pulledItems) {
+                    if (item.Locations && item.Locations.length > 0) {
+                        for (const loc of item.Locations) {
+                            if (loc.quantity < loc.originalQty) {
+                                const pulledQty = loc.originalQty - loc.quantity;
+                                flattenedPulled.push({
+                                    'Name': item['Clean Name'] || item['Pull Sheet Name'] || item['Search Query'] || '',
+                                    'Set': loc.set || item['Set'] || '',
+                                    'Number': item['Number'] || '',
+                                    'Condition': loc.condition || item['Condition'] || '',
+                                    'Quantity': item['Quantity'] || 1,
+                                    'Location': loc.location || 'Unknown',
+                                    'Available Qty': loc.quantity || 0,
+                                    'Stock Status': '📦 Pulled',
+                                    'IsFound': true,
+                                    'IsPulled': true,
+                                    'PulledQty': pulledQty
+                                });
+                            }
                         }
                     }
                 }
@@ -1230,7 +1696,8 @@
                     'Location': '❌ NOT FOUND',
                     'Available Qty': 0,
                     'Stock Status': '❌ Not Found',
-                    'IsFound': false
+                    'IsFound': false,
+                    'IsPulled': false
                 }));
                 
                 flattenedFound.sort((a, b) => a.Location.localeCompare(b.Location));
@@ -1245,98 +1712,77 @@
                         <div class="label">${this.engine.isQuickLookup ? 'Cards Searched' : 'Magic Cards'}</div>
                     </div>
                     <div class="print-summary-item">
-                        <div class="number" style="color: #22c55e;">${foundItems.length}</div>
+                        <div class="number" style="color: #22c55e;">${foundItems.length + pulledItems.length}</div>
                         <div class="label">✅ Found</div>
+                    </div>
+                    <div class="print-summary-item">
+                        <div class="number" style="color: #f59e0b;">${pulledItems.length}</div>
+                        <div class="label">📦 Pulled</div>
                     </div>
                     <div class="print-summary-item">
                         <div class="number" style="color: #ef4444;">${notFoundItems.length}</div>
                         <div class="label">❌ Not Found</div>
                     </div>
-                    <div class="print-summary-item">
-                        <div class="number" style="color: #f59e0b;">${stats ? stats.lowStock : 0}</div>
-                        <div class="label">⚠️ Low Stock</div>
-                    </div>
                 `;
                 document.getElementById('printSummary').innerHTML = summaryHTML;
                 
-                let foundHTML = '';
-                if (flattenedFound.length > 0) {
-                    const groupedFound = {};
-                    for (const item of flattenedFound) {
-                        const key = item.Location || 'Unknown';
-                        if (!groupedFound[key]) groupedFound[key] = [];
-                        groupedFound[key].push(item);
+                const allItems = [...flattenedPulled, ...flattenedFound, ...flattenedNotFound];
+                
+                let html = '';
+                let totalPicks = 0;
+                
+                const grouped = {};
+                for (const item of allItems) {
+                    const key = item.Location || 'Unknown';
+                    if (!grouped[key]) grouped[key] = [];
+                    grouped[key].push(item);
+                }
+                
+                for (const [location, items] of Object.entries(grouped).sort()) {
+                    const isPulled = items.some(i => i.IsPulled);
+                    const isNotFound = location === '❌ NOT FOUND';
+                    
+                    if (isNotFound) {
+                        html += `<div class="print-box-header" style="border-left-color: #ef4444;">❌ ${location}</div>`;
+                    } else if (isPulled) {
+                        html += `<div class="print-box-header" style="border-left-color: #f59e0b;">📦 ${location} (Pulled)</div>`;
+                    } else {
+                        html += `<div class="print-box-header">📦 ${location}</div>`;
                     }
                     
-                    let totalPicks = 0;
-                    for (const [location, items] of Object.entries(groupedFound).sort()) {
-                        foundHTML += `<div class="print-box-header">📦 ${location}</div>`;
-                        
-                        for (const item of items) {
-                            totalPicks++;
-                            const stockStatus = item['Stock Status'] === '⚠️ Low Stock' ? 
+                    for (const item of items) {
+                        totalPicks++;
+                        const stockStatus = item['IsPulled'] ? 
+                            `<span style="color: #f59e0b;">📦 Pulled ${item['PulledQty'] || 1}</span>` :
+                            (item['Stock Status'] === '⚠️ Low Stock' ? 
                                 `<span style="color: #f59e0b;">⚠️ Only ${item['Available Qty']} available</span>` : 
-                                `<span style="color: #22c55e;">✅ ${item['Available Qty']} in stock</span>`;
-                            
-                            const details = [];
-                            if (item['Set']) details.push(item['Set']);
-                            if (item['Number']) details.push(`#${item['Number']}`);
-                            if (item['Condition']) details.push(item['Condition']);
-                            const detailStr = details.length > 0 ? `• ${details.join(' • ')}` : '';
-                            
-                            foundHTML += `
-                                <div class="print-picking-item">
-                                    <div>
-                                        <span style="font-weight:600;margin-right:10px;">${totalPicks}.</span>
-                                        <span class="card-name">${item['Name']}</span>
-                                        <span class="card-details">${detailStr}</span>
-                                    </div>
-                                    <div style="display:flex;align-items:center;gap:15px;">
-                                        <span style="font-weight:600;">Qty: ${item['Quantity']}</span>
-                                        ${stockStatus}
-                                    </div>
-                                </div>
-                            `;
-                        }
-                    }
-                } else {
-                    foundHTML = '<p style="color: #6b7280; padding: 10px;">No found items to display.</p>';
-                }
-                document.getElementById('printPickingList').innerHTML = foundHTML;
-                
-                let notFoundHTML = '';
-                if (flattenedNotFound.length > 0) {
-                    let nfCount = 0;
-                    for (const item of flattenedNotFound) {
-                        nfCount++;
+                                `<span style="color: #22c55e;">✅ ${item['Available Qty']} in stock</span>`);
+                        
                         const details = [];
                         if (item['Set']) details.push(item['Set']);
                         if (item['Number']) details.push(`#${item['Number']}`);
                         if (item['Condition']) details.push(item['Condition']);
                         const detailStr = details.length > 0 ? `• ${details.join(' • ')}` : '';
                         
-                        notFoundHTML += `
-                            <div class="print-picking-item" style="border-left: 3px solid #ef4444; background: #fef2f2;">
+                        html += `
+                            <div class="print-picking-item" style="${item['IsPulled'] ? 'border-left: 3px solid #f59e0b; background: #fffbeb;' : ''}">
                                 <div>
-                                    <span style="font-weight:600;margin-right:10px;">${nfCount}.</span>
+                                    <span style="font-weight:600;margin-right:10px;">${totalPicks}.</span>
                                     <span class="card-name">${item['Name']}</span>
                                     <span class="card-details">${detailStr}</span>
-                                    <span class="not-found-label" style="margin-left:10px;">❌ NOT IN DATABASE</span>
+                                    ${item['IsPulled'] ? '<span style="color: #f59e0b; margin-left:10px; font-weight:600;">📦 PULLED</span>' : ''}
                                 </div>
                                 <div style="display:flex;align-items:center;gap:15px;">
                                     <span style="font-weight:600;">Qty: ${item['Quantity']}</span>
-                                    <span style="color: #ef4444; font-weight:500;">Check storage</span>
+                                    ${stockStatus}
                                 </div>
                             </div>
                         `;
                     }
-                } else {
-                    notFoundHTML = '<p style="color: #22c55e; padding: 10px;">🎉 All items found!</p>';
                 }
-                document.getElementById('printNotFoundList').innerHTML = notFoundHTML;
                 
-                document.getElementById('printFoundItems').style.display = flattenedFound.length > 0 ? 'block' : 'none';
-                document.getElementById('printNotFoundItems').style.display = flattenedNotFound.length > 0 ? 'block' : 'none';
+                document.getElementById('printPickingList').innerHTML = html;
+                document.getElementById('printNotFoundItems').innerHTML = '';
                 
                 window.print();
             }
@@ -1351,6 +1797,11 @@
                 const ws = XLSX.utils.json_to_sheet(this.results);
                 XLSX.utils.book_append_sheet(wb, ws, 'Locations');
                 
+                if (pullLog.length > 0) {
+                    const pullWs = XLSX.utils.json_to_sheet(pullLog);
+                    XLSX.utils.book_append_sheet(wb, pullWs, 'Pull Log');
+                }
+                
                 const blob = new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], 
                     { type: 'application/octet-stream' });
                 const link = document.createElement('a');
@@ -1360,10 +1811,20 @@
             }
             
             clearAll() {
+                if (pullLog.length > 0) {
+                    if (confirm('Clear all results and undo all pulls?')) {
+                        undoAllPulls();
+                    } else {
+                        return;
+                    }
+                }
+                
                 this.inventoryFile = null;
                 this.pullSheetFile = null;
                 this.results = [];
                 this.pullSheetLoaded = false;
+                this.selectionMode = false;
+                this.selectedCard = null;
                 
                 this.pullSheetInput.value = '';
                 this.pullSheetFileName.textContent = 'Drop Pull Sheet CSV here';
@@ -1385,11 +1846,14 @@
                 this.searchBox.value = '';
                 this.statusFilter.value = 'all';
                 this.qtyFilter.value = 'all';
+                this.selectionIndicator.classList.remove('active');
                 
                 this.engine.pullSheet = [];
                 this.engine.filteredPullSheet = [];
                 this.engine.results = [];
                 this.engine.isQuickLookup = false;
+                
+                this.updatePullLogUI();
                 
                 if (this.engine.inventory && this.engine.inventory.length > 0) {
                     this.inventoryLoaded = true;
