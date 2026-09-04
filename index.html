@@ -96,6 +96,7 @@
         .location-list { display: flex; flex-direction: column; gap: 3px; }
         .location-item { font-size: 13px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
         .filtered-badge { background: #dbeafe; color: #1e40af; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 500; display: inline-block; margin-left: 5px; }
+        .match-detail { font-size: 11px; color: #6b7280; }
         
         .loading { display: none; text-align: center; padding: 40px; }
         .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #6366f1; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px; }
@@ -136,6 +137,95 @@
             font-size: 12px;
             color: #1a1a2e;
         }
+        
+        .quick-lookup-section {
+            background: #f8fafc;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+            margin-bottom: 15px;
+        }
+        .quick-lookup-section textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: 'Courier New', monospace;
+            resize: vertical;
+            min-height: 80px;
+        }
+        .quick-lookup-section textarea:focus {
+            outline: none;
+            border-color: #6366f1;
+        }
+        .quick-lookup-section .row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+            align-items: center;
+        }
+        .quick-lookup-section .help-text {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 5px;
+        }
+        
+        .btn-primary-large {
+            background: #6366f1;
+            color: white;
+            padding: 14px 50px;
+            border: none;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+        }
+        .btn-primary-large:hover:not(:disabled) {
+            background: #4f46e5;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
+        }
+        .btn-primary-large:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .action-bar {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin: 15px 0;
+            align-items: center;
+        }
+        
+        .input-hint {
+            font-size: 13px;
+            color: #6b7280;
+            margin-top: 5px;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        .input-hint .hint-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .input-hint .dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+        .input-hint .dot.green { background: #22c55e; }
+        .input-hint .dot.orange { background: #f59e0b; }
+        .input-hint .dot.blue { background: #6366f1; }
         
         @media (max-width: 768px) {
             .upload-grid { grid-template-columns: 1fr; }
@@ -233,7 +323,7 @@
     <div class="container">
         <div class="header no-print">
             <h1>🔍 Card Location Lookup</h1>
-            <p>Load inventory from local file • Upload Pull Sheet • Auto-filters for Magic cards</p>
+            <p>Load inventory • Upload Pull Sheet or paste card list • One-click lookup</p>
         </div>
         
         <!-- Main Content -->
@@ -270,8 +360,27 @@
                     </div>
                 </div>
                 
-                <div style="text-align: center; margin-top: 10px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
-                    <button class="btn btn-primary" id="processBtn" disabled>🔍 Look Up Locations</button>
+                <!-- Quick Lookup Section -->
+                <div class="quick-lookup-section">
+                    <h4 style="margin-bottom: 8px;">🔎 Quick Card Lookup</h4>
+                    <p style="font-size: 13px; color: #6b7280; margin-bottom: 8px;">Paste a list of card names (one per line) to search inventory directly:</p>
+                    <textarea id="quickLookupInput" placeholder="Misty Rainforest&#10;Scalding Tarn&#10;Force of Will"></textarea>
+                    <div class="help-text">
+                        💡 Format: <code>Card Name</code> or <code>Card Name | Set | Number</code> for more precise matching
+                    </div>
+                    <div id="quickLookupStatus" style="margin-top: 8px;"></div>
+                </div>
+                
+                <!-- Input Status Hints -->
+                <div class="input-hint">
+                    <span class="hint-item"><span class="dot green"></span> Inventory loaded</span>
+                    <span class="hint-item" id="pullSheetHint"><span class="dot orange"></span> Pull Sheet: <span id="pullSheetStatusText">None loaded</span></span>
+                    <span class="hint-item" id="quickHint"><span class="dot blue"></span> Quick Lookup: <span id="quickStatusText">Empty</span></span>
+                </div>
+                
+                <!-- SINGLE ACTION BUTTON -->
+                <div class="action-bar">
+                    <button class="btn-primary-large" id="findBtn" disabled>🔍 Find Locations</button>
                     <button class="btn btn-secondary" id="clearBtn">🗑️ Clear All</button>
                     <button class="btn btn-info" id="sampleBtn">📝 Load Sample</button>
                     <button class="btn btn-secondary" id="debugBtn" style="font-size:12px;padding:8px 15px;">🔍 Show Debug</button>
@@ -290,8 +399,8 @@
                     💡 <strong>Available Qty</strong> comes from your Inventory's <strong>Add to Quantity</strong> column 
                     (fallback: <strong>Total Quantity</strong>).
                     <br>📍 Cards in <strong>multiple locations</strong> show all locations.
+                    <br>🔍 <strong>Matching:</strong> Uses Card Name + Set + Card # for precise matching.
                     <br>🖨️ <strong>Print Picking List</strong> shows ALL items - found AND not found.
-                    <br>🔍 Pull Sheet is <strong>auto-filtered</strong> for "Magic" in the Product Line column.
                 </div>
                 
                 <div class="results-stats no-print" id="statsRow"></div>
@@ -352,10 +461,7 @@
         // CONFIGURATION
         // ============================================================
         
-        // The default inventory file to load from the same directory
         const DEFAULT_INVENTORY_FILE = 'inventory.csv';
-        
-        // Product Line filter - only process rows with this value
         const PRODUCT_LINE_FILTER = 'Magic';
         
         // ============================================================
@@ -400,7 +506,7 @@
         });
         
         // ============================================================
-        // LOOKUP ENGINE - With Product Line Filtering
+        // LOOKUP ENGINE
         // ============================================================
         
         class LookupEngine {
@@ -411,6 +517,8 @@
                 this.results = [];
                 this.filteredCount = 0;
                 this.totalPullSheetRows = 0;
+                this.quickLookupResults = [];
+                this.isQuickLookup = false;
             }
             
             parseCSV(file) {
@@ -455,13 +563,11 @@
                 });
             }
             
-            // Load inventory from a File object (CSV)
             async loadInventoryFromFile(file) {
                 this.inventory = await this.parseCSV(file);
                 return this.inventory;
             }
             
-            // Load inventory from raw CSV text (for local file loading via fetch)
             loadInventoryFromCSV(csvText, filename = 'local file') {
                 return new Promise((resolve, reject) => {
                     debug(`📦 Parsing inventory from: ${filename}`, 'info');
@@ -505,15 +611,10 @@
                 });
             }
             
-            // ============================================================
-            // LOAD PULL SHEET WITH PRODUCT LINE FILTERING
-            // ============================================================
-            
             async loadPullSheet(file) {
                 this.pullSheet = await this.parseCSV(file);
                 this.totalPullSheetRows = this.pullSheet.length;
                 
-                // Filter rows where Product Line equals "Magic"
                 this.filteredPullSheet = this.pullSheet.filter(row => {
                     const productLine = this.findColumn(row, ['Product Line', 'ProductLine', 'Line']);
                     const isMagic = productLine && productLine.trim().toLowerCase() === PRODUCT_LINE_FILTER.toLowerCase();
@@ -530,6 +631,7 @@
                     debug(`🗑️ Filtered out ${this.totalPullSheetRows - this.filteredCount} non-Magic rows`, 'warn');
                 }
                 
+                this.isQuickLookup = false;
                 return this.filteredPullSheet;
             }
             
@@ -550,39 +652,140 @@
                 if (!rawName) return '';
                 
                 let name = String(rawName);
-                let cleaned = false;
                 
-                // Remove any hex-looking strings (order IDs)
+                // Remove hex-looking strings (order IDs)
                 name = name.replace(/[A-F0-9]{8}-[A-F0-9]{6}-[A-F0-9]{6}/gi, '');
                 name = name.replace(/\b[A-F0-9]{6,8}\b/gi, '');
                 name = name.replace(/[\|\*\_\t]+/g, ' ').trim();
-                
-                // Clean up extra spaces
                 name = name.replace(/\s+/g, ' ').trim();
                 
-                // Remove any remaining hex-like patterns
-                const hexPattern = /^[0-9A-F\s\-]+$/i;
-                const vowelPattern = /[aeiou]/i;
+                return name;
+            }
+            
+            // ============================================================
+            // ENHANCED MULTI-FIELD MATCHING
+            // ============================================================
+            
+            findCardLocations(productName, cardNumber, set, condition) {
+                if (!this.inventory || this.inventory.length === 0) return [];
                 
-                // If the whole string is hex, try to find the actual card name
-                if (hexPattern.test(name) && !vowelPattern.test(name)) {
-                    // Split and try to find a part that looks like a card name
-                    const parts = name.split(/[\s\|]/);
-                    for (const part of parts) {
-                        const trimmed = part.trim();
-                        if (trimmed.length > 2 && vowelPattern.test(trimmed) && !hexPattern.test(trimmed)) {
-                            name = trimmed;
-                            cleaned = true;
-                            break;
-                        }
+                const clean = (str) => {
+                    if (!str) return '';
+                    return String(str).toLowerCase().trim().replace(/\s+/g, ' ');
+                };
+                
+                const searchName = clean(productName);
+                const searchNumber = clean(cardNumber);
+                const searchSet = clean(set);
+                const searchCondition = clean(condition);
+                
+                const matches = [];
+                
+                for (const item of this.inventory) {
+                    const itemName = clean(this.findColumn(item, ['Product Name', 'ProductName', 'Name', 'Card Name']));
+                    const itemNumber = clean(this.findColumn(item, ['Number', 'Card Number', 'Card#']));
+                    const itemSet = clean(this.findColumn(item, ['Set Name', 'Set', 'SetName']));
+                    const itemCondition = clean(this.findColumn(item, ['Condition', 'Cond']));
+                    
+                    // Strategy 1: Exact match on ALL fields - BEST
+                    if (itemName === searchName && 
+                        itemNumber === searchNumber && 
+                        itemSet === searchSet &&
+                        itemCondition === searchCondition) {
+                        matches.push({ 
+                            item, 
+                            score: 100, 
+                            matchType: 'Exact: Name + Number + Set + Condition' 
+                        });
+                        continue;
+                    }
+                    
+                    // Strategy 2: Name + Number + Set
+                    if (itemName === searchName && 
+                        itemNumber === searchNumber && 
+                        itemSet === searchSet) {
+                        matches.push({ 
+                            item, 
+                            score: 90, 
+                            matchType: 'Exact: Name + Number + Set' 
+                        });
+                        continue;
+                    }
+                    
+                    // Strategy 3: Name + Set + Condition
+                    if (itemName === searchName && 
+                        itemSet === searchSet &&
+                        itemCondition === searchCondition) {
+                        matches.push({ 
+                            item, 
+                            score: 85, 
+                            matchType: 'Exact: Name + Set + Condition' 
+                        });
+                        continue;
+                    }
+                    
+                    // Strategy 4: Name + Number
+                    if (itemName === searchName && 
+                        itemNumber === searchNumber) {
+                        matches.push({ 
+                            item, 
+                            score: 80, 
+                            matchType: 'Exact: Name + Number' 
+                        });
+                        continue;
+                    }
+                    
+                    // Strategy 5: Name + Set
+                    if (itemName === searchName && 
+                        itemSet === searchSet) {
+                        matches.push({ 
+                            item, 
+                            score: 70, 
+                            matchType: 'Exact: Name + Set' 
+                        });
+                        continue;
+                    }
+                    
+                    // Strategy 6: Name only
+                    if (itemName === searchName) {
+                        matches.push({ 
+                            item, 
+                            score: 60, 
+                            matchType: 'Exact: Name only' 
+                        });
+                        continue;
+                    }
+                    
+                    // Strategy 7: Partial name + Set
+                    if ((itemName.includes(searchName) || searchName.includes(itemName)) && 
+                        itemSet === searchSet) {
+                        matches.push({ 
+                            item, 
+                            score: 50, 
+                            matchType: 'Partial Name + Set' 
+                        });
+                        continue;
+                    }
+                    
+                    // Strategy 8: Partial name only
+                    if (itemName.includes(searchName) || searchName.includes(itemName)) {
+                        matches.push({ 
+                            item, 
+                            score: 40, 
+                            matchType: 'Partial Name' 
+                        });
+                        continue;
                     }
                 }
                 
-                if (cleaned && name !== rawName) {
-                    debug(`🧹 Cleaned: "${rawName}" → "${name}"`, 'info');
-                }
+                matches.sort((a, b) => {
+                    if (b.score !== a.score) return b.score - a.score;
+                    const locA = a.item['Where is it?'] || '';
+                    const locB = b.item['Where is it?'] || '';
+                    return locA.localeCompare(locB);
+                });
                 
-                return name;
+                return matches;
             }
             
             getAvailableQuantity(item) {
@@ -599,68 +802,99 @@
                 return 0;
             }
             
-            findAllLocations(rawProductName) {
-                if (!this.inventory || this.inventory.length === 0) return [];
-                
-                const searchName = this.cleanProductName(rawProductName)
-                    .toLowerCase().trim().replace(/\s+/g, ' ');
-                
-                if (!searchName || searchName.length < 2) {
-                    return [];
+            // ============================================================
+            // QUICK LOOKUP
+            // ============================================================
+            
+            quickLookup(cardList) {
+                if (!this.inventory || this.inventory.length === 0) {
+                    throw new Error('Inventory is empty. Load inventory first.');
                 }
                 
-                const matches = [];
+                const lines = cardList.split('\n')
+                    .map(line => line.trim())
+                    .filter(line => line.length > 0);
                 
-                for (const item of this.inventory) {
-                    const itemName = this.findColumn(item, ['Product Name', 'ProductName', 'Name', 'Card Name'])
-                        .toLowerCase().trim().replace(/\s+/g, ' ');
-                    
-                    let isMatch = false;
-                    
-                    if (itemName === searchName) {
-                        isMatch = true;
-                    }
-                    else if (itemName.includes(searchName) || searchName.includes(itemName)) {
-                        isMatch = true;
-                    }
-                    else {
-                        const cleanSearch = searchName.replace(/\([^)]*\)/g, '').trim();
-                        if (cleanSearch !== searchName && cleanSearch.length > 3) {
-                            if (itemName.includes(cleanSearch) || cleanSearch.includes(itemName)) {
-                                isMatch = true;
-                            }
-                        }
-                    }
-                    
-                    if (isMatch) {
-                        const location = this.findColumn(item, ['Where is it?', 'Location', 'Box Location']);
-                        const qty = this.getAvailableQuantity(item);
-                        const condition = this.findColumn(item, ['Condition', 'Cond']);
-                        const set = this.findColumn(item, ['Set Name', 'Set', 'SetName']);
-                        const rarity = this.findColumn(item, ['Rarity']);
-                        
-                        matches.push({
-                            location: location || 'Unknown',
-                            quantity: qty,
-                            condition: condition || '',
-                            set: set || '',
-                            rarity: rarity || '',
-                            inventoryName: this.findColumn(item, ['Product Name', 'ProductName', 'Name', 'Card Name']) || '',
-                            fullItem: item
-                        });
-                    }
+                if (lines.length === 0) {
+                    throw new Error('No card names provided.');
                 }
                 
-                matches.sort((a, b) => {
-                    if (b.quantity !== a.quantity) return b.quantity - a.quantity;
-                    return a.location.localeCompare(b.location);
-                });
+                debug(`🔎 Quick lookup: ${lines.length} cards`, 'info');
                 
-                return matches;
+                this.quickLookupResults = [];
+                let foundCount = 0;
+                
+                for (const line of lines) {
+                    let name = line;
+                    let set = '';
+                    let number = '';
+                    let condition = '';
+                    
+                    if (line.includes('|')) {
+                        const parts = line.split('|').map(p => p.trim());
+                        name = parts[0] || '';
+                        if (parts.length > 1) set = parts[1] || '';
+                        if (parts.length > 2) number = parts[2] || '';
+                        if (parts.length > 3) condition = parts[3] || '';
+                    }
+                    
+                    const cleanName = this.cleanProductName(name);
+                    
+                    if (!cleanName) {
+                        debug(`⚠️ Skipping empty line: "${line}"`, 'warn');
+                        continue;
+                    }
+                    
+                    const matches = this.findCardLocations(cleanName, number, set, condition);
+                    
+                    const result = {
+                        'Search Query': line,
+                        'Clean Name': cleanName,
+                        'Set': set,
+                        'Number': number,
+                        'Condition': condition,
+                        'Status': 'Not Found',
+                        'Locations': [],
+                        'Location Display': 'Not Found',
+                        'Match Type': '',
+                        'Match Score': 0,
+                        'Inventory Name': '',
+                        'Available Qty': 0,
+                        'Stock Status': 'No Stock'
+                    };
+                    
+                    if (matches.length > 0) {
+                        const bestMatch = matches[0];
+                        result['Status'] = 'Found';
+                        result['Match Type'] = bestMatch.matchType;
+                        result['Match Score'] = bestMatch.score;
+                        result['Locations'] = matches.map(m => ({
+                            location: this.findColumn(m.item, ['Where is it?', 'Location', 'Box Location']) || 'Unknown',
+                            quantity: this.getAvailableQuantity(m.item),
+                            condition: this.findColumn(m.item, ['Condition', 'Cond']) || '',
+                            set: this.findColumn(m.item, ['Set Name', 'Set', 'SetName']) || '',
+                            rarity: this.findColumn(m.item, ['Rarity']) || '',
+                            inventoryName: this.findColumn(m.item, ['Product Name', 'ProductName', 'Name', 'Card Name']) || ''
+                        }));
+                        result['Location Display'] = result['Locations'].map(l => 
+                            `${l.location} (${l.quantity})`
+                        ).join(' | ');
+                        result['Inventory Name'] = this.findColumn(bestMatch.item, ['Product Name', 'ProductName', 'Name', 'Card Name']) || '';
+                        result['Available Qty'] = this.getAvailableQuantity(bestMatch.item);
+                        result['Stock Status'] = result['Available Qty'] > 0 ? '✅ In Stock' : '⚠️ Out of Stock';
+                        foundCount++;
+                    }
+                    
+                    this.quickLookupResults.push(result);
+                }
+                
+                this.isQuickLookup = true;
+                debug(`✅ Quick lookup: ${foundCount}/${lines.length} found`, 'success');
+                return this.quickLookupResults;
             }
             
-            process() {
-                debug(`🚀 Starting VLOOKUP (finding ALL locations)...`, 'info');
+            processPullSheet() {
+                debug(`🚀 Processing Pull Sheet...`, 'info');
                 debug(`📊 Inventory: ${this.inventory.length} rows`, 'info');
                 debug(`📊 Pull Sheet (filtered): ${this.filteredPullSheet.length} rows`, 'info');
                 
@@ -673,21 +907,19 @@
                 
                 this.results = [];
                 let found = 0;
-                let cleanedCount = 0;
                 let usingAddToQty = 0;
                 let multipleLocations = 0;
+                this.isQuickLookup = false;
                 
                 for (const item of this.filteredPullSheet) {
                     const rawName = this.findColumn(item, ['Product Name', 'ProductName', 'Name', 'Card Name']);
                     const condition = this.findColumn(item, ['Condition', 'Cond']);
                     const set = this.findColumn(item, ['Set', 'Set Name', 'SetName']);
+                    const cardNumber = this.findColumn(item, ['Number', 'Card Number', 'Card#']);
                     const qty = parseInt(this.findColumn(item, ['Quantity', 'Qty', 'Order Quantity'])) || 1;
                     const productLine = this.findColumn(item, ['Product Line', 'ProductLine', 'Line']);
                     
                     const cleanName = this.cleanProductName(rawName);
-                    if (cleanName !== rawName && cleanName) {
-                        cleanedCount++;
-                    }
                     
                     if (!cleanName || cleanName.length < 2) {
                         debug(`⚠️ Empty after cleaning: "${rawName}"`, 'warn');
@@ -697,22 +929,24 @@
                             'Product Line': productLine,
                             'Condition': condition,
                             'Set': set,
+                            'Number': cardNumber,
                             'Quantity': qty,
                             'Status': 'Not Found',
                             'Locations': [],
                             'Location Display': 'Not Found',
+                            'Match Type': '',
+                            'Match Score': 0,
                             'Inventory Name': '',
                             'Available Qty': 0,
                             'Stock Status': 'No Stock',
                             'Qty Source': '',
-                            'Cleaned': false,
                             'MultipleLocations': false
                         };
                         this.results.push(result);
                         continue;
                     }
                     
-                    const matches = this.findAllLocations(cleanName);
+                    const matches = this.findCardLocations(cleanName, cardNumber, set, condition);
                     
                     const result = {
                         'Pull Sheet Name': rawName,
@@ -720,38 +954,51 @@
                         'Product Line': productLine,
                         'Condition': condition,
                         'Set': set,
+                        'Number': cardNumber,
                         'Quantity': qty,
                         'Status': 'Not Found',
                         'Locations': [],
                         'Location Display': 'Not Found',
+                        'Match Type': '',
+                        'Match Score': 0,
                         'Inventory Name': '',
                         'Available Qty': 0,
                         'Stock Status': 'No Stock',
                         'Qty Source': '',
-                        'Cleaned': cleanName !== rawName,
                         'MultipleLocations': false
                     };
                     
                     if (matches.length > 0) {
+                        const bestMatch = matches[0];
                         result['Status'] = 'Found';
-                        result['Locations'] = matches;
+                        result['Match Type'] = bestMatch.matchType;
+                        result['Match Score'] = bestMatch.score;
+                        result['Locations'] = matches.map(m => ({
+                            location: this.findColumn(m.item, ['Where is it?', 'Location', 'Box Location']) || 'Unknown',
+                            quantity: this.getAvailableQuantity(m.item),
+                            condition: this.findColumn(m.item, ['Condition', 'Cond']) || '',
+                            set: this.findColumn(m.item, ['Set Name', 'Set', 'SetName']) || '',
+                            rarity: this.findColumn(m.item, ['Rarity']) || '',
+                            inventoryName: this.findColumn(m.item, ['Product Name', 'ProductName', 'Name', 'Card Name']) || ''
+                        }));
                         result['MultipleLocations'] = matches.length > 1;
                         
                         const locationParts = matches.map(m => {
-                            const qtyDisplay = m.quantity > 0 ? ` (${m.quantity})` : '';
-                            return `${m.location}${qtyDisplay}`;
+                            const qtyDisplay = this.getAvailableQuantity(m.item) > 0 ? 
+                                ` (${this.getAvailableQuantity(m.item)})` : '';
+                            return `${this.findColumn(m.item, ['Where is it?', 'Location', 'Box Location']) || 'Unknown'}${qtyDisplay}`;
                         });
                         result['Location Display'] = locationParts.join(' | ');
                         
                         const firstMatch = matches[0];
-                        result['Inventory Name'] = firstMatch.inventoryName || '';
-                        result['Available Qty'] = firstMatch.quantity || 0;
+                        result['Inventory Name'] = this.findColumn(firstMatch.item, ['Product Name', 'ProductName', 'Name', 'Card Name']) || '';
+                        result['Available Qty'] = this.getAvailableQuantity(firstMatch.item);
                         
-                        const totalAvailable = matches.reduce((sum, m) => sum + m.quantity, 0);
+                        const totalAvailable = matches.reduce((sum, m) => sum + this.getAvailableQuantity(m.item), 0);
                         result['Stock Status'] = totalAvailable >= qty ? '✅ Enough' : '⚠️ Low Stock';
                         result['Total Available'] = totalAvailable;
                         
-                        const addQty = this.findColumn(firstMatch.fullItem, ['Add to Quantity', 'AddToQuantity', 'Add Quantity']);
+                        const addQty = this.findColumn(firstMatch.item, ['Add to Quantity', 'AddToQuantity', 'Add Quantity']);
                         if (addQty && !isNaN(parseInt(addQty))) {
                             result['Qty Source'] = 'Add to Quantity';
                             usingAddToQty++;
@@ -770,9 +1017,6 @@
                     this.results.push(result);
                 }
                 
-                debug(`🧹 Cleaned ${cleanedCount} product names`, 'info');
-                debug(`📍 Found ${multipleLocations} cards in multiple locations`, 'info');
-                debug(`📊 Using "Add to Quantity" for ${usingAddToQty} items`, 'info');
                 debug(`✅ Found ${found}/${this.results.length} items (${((found/this.results.length)*100).toFixed(1)}%)`, 'success');
                 return this.results;
             }
@@ -791,13 +1035,14 @@
                     lowStock, 
                     multiple,
                     filteredCount: this.filteredCount,
-                    totalPullSheetRows: this.totalPullSheetRows
+                    totalPullSheetRows: this.totalPullSheetRows,
+                    isQuickLookup: this.isQuickLookup
                 };
             }
         }
         
         // ============================================================
-        // UI CONTROLLER
+        // UI CONTROLLER - UPDATED: Button enables with Quick Lookup text
         // ============================================================
         
         class UI {
@@ -812,17 +1057,14 @@
                 this.initElements();
                 this.bindEvents();
                 
-                // Auto-load default inventory from local file
                 this.loadDefaultInventory();
             }
             
             initElements() {
-                // Status
                 this.statusText = document.getElementById('statusText');
                 this.statusDetail = document.getElementById('statusDetail');
                 this.statusBadge = document.getElementById('statusBadge');
                 
-                // Upload zones
                 this.inventoryZone = document.getElementById('inventoryZone');
                 this.pullSheetZone = document.getElementById('pullsheetZone');
                 this.inventoryInput = document.getElementById('inventoryFile');
@@ -832,14 +1074,17 @@
                 this.inventoryFileDetails = document.getElementById('inventoryFileDetails');
                 this.pullSheetFileDetails = document.getElementById('pullsheetFileDetails');
                 
-                // Buttons
-                this.processBtn = document.getElementById('processBtn');
+                this.quickLookupInput = document.getElementById('quickLookupInput');
+                this.quickLookupStatus = document.getElementById('quickLookupStatus');
+                this.quickStatusText = document.getElementById('quickStatusText');
+                this.pullSheetStatusText = document.getElementById('pullSheetStatusText');
+                
+                this.findBtn = document.getElementById('findBtn');
                 this.clearBtn = document.getElementById('clearBtn');
                 this.sampleBtn = document.getElementById('sampleBtn');
                 this.downloadBtn = document.getElementById('downloadBtn');
                 this.printBtn = document.getElementById('printBtn');
                 
-                // Results
                 this.resultsSection = document.getElementById('resultsSection');
                 this.statsRow = document.getElementById('statsRow');
                 this.tableContainer = document.getElementById('tableContainer');
@@ -852,7 +1097,6 @@
             }
             
             bindEvents() {
-                // Inventory upload (optional override)
                 this.inventoryInput.addEventListener('change', (e) => this.handleInventoryUpload(e));
                 this.inventoryZone.addEventListener('dragover', (e) => { e.preventDefault(); this.inventoryZone.classList.add('dragover'); });
                 this.inventoryZone.addEventListener('dragleave', () => { this.inventoryZone.classList.remove('dragover'); });
@@ -866,7 +1110,6 @@
                 });
                 this.inventoryZone.addEventListener('click', () => this.inventoryInput.click());
                 
-                // Pull Sheet upload
                 this.pullSheetInput.addEventListener('change', (e) => this.handlePullSheet(e));
                 this.pullSheetZone.addEventListener('dragover', (e) => { e.preventDefault(); this.pullSheetZone.classList.add('dragover'); });
                 this.pullSheetZone.addEventListener('dragleave', () => { this.pullSheetZone.classList.remove('dragover'); });
@@ -880,14 +1123,19 @@
                 });
                 this.pullSheetZone.addEventListener('click', () => this.pullSheetInput.click());
                 
-                // Buttons
-                this.processBtn.addEventListener('click', () => this.process());
+                // Quick Lookup - update status and button in real-time
+                this.quickLookupInput.addEventListener('input', () => {
+                    this.updateQuickStatus();
+                    this.updateFindButton();
+                });
+                
+                this.findBtn.addEventListener('click', () => this.findLocations());
+                
                 this.clearBtn.addEventListener('click', () => this.clearAll());
                 this.sampleBtn.addEventListener('click', () => this.loadSample());
                 this.downloadBtn.addEventListener('click', () => this.download());
                 this.printBtn.addEventListener('click', () => this.printPickingList());
                 
-                // Filters
                 this.searchBox.addEventListener('input', () => this.render());
                 this.statusFilter.addEventListener('change', () => this.render());
                 this.qtyFilter.addEventListener('change', () => this.render());
@@ -934,7 +1182,7 @@
                     this.inventoryZone.classList.add('has-file');
                     
                     debug(`📦 Default inventory loaded: ${this.engine.inventory.length} rows`, 'success');
-                    this.updateProcessButton();
+                    this.updateFindButton();
                     
                 } catch (error) {
                     console.warn('Default inventory load failed:', error.message);
@@ -973,6 +1221,16 @@
             }
             
             // ============================================================
+            // UPDATE QUICK STATUS
+            // ============================================================
+            
+            updateQuickStatus() {
+                const text = this.quickLookupInput.value.trim();
+                const count = text ? text.split('\n').filter(line => line.trim().length > 0).length : 0;
+                this.quickStatusText.textContent = count > 0 ? `${count} cards` : 'Empty';
+            }
+            
+            // ============================================================
             // HANDLE INVENTORY UPLOAD
             // ============================================================
             
@@ -999,7 +1257,7 @@
                     );
                     
                     debug(`📦 Inventory uploaded: ${this.engine.inventory.length} rows`, 'success');
-                    this.updateProcessButton();
+                    this.updateFindButton();
                     
                 } catch (error) {
                     this.setStatus('error', `❌ Error loading ${file.name}`, error.message, '❌ Error');
@@ -1009,7 +1267,7 @@
             }
             
             // ============================================================
-            // HANDLE PULL SHEET UPLOAD - WITH FILTERING
+            // HANDLE PULL SHEET UPLOAD
             // ============================================================
             
             async handlePullSheet(event) {
@@ -1025,7 +1283,6 @@
                 try {
                     await this.engine.loadPullSheet(file);
                     
-                    // Show filtering stats
                     const stats = this.engine;
                     let filterMsg = '';
                     if (stats.filteredCount < stats.totalPullSheetRows) {
@@ -1034,9 +1291,10 @@
                     
                     this.pullSheetFileName.textContent = `✅ ${file.name} - ${stats.filteredCount} Magic cards${filterMsg}`;
                     this.pullSheetFileDetails.textContent = `${(file.size / 1024).toFixed(1)} KB • ${stats.filteredCount} of ${stats.totalPullSheetRows} rows kept`;
+                    this.pullSheetStatusText.textContent = `${stats.filteredCount} cards`;
                     
                     debug(`📄 Pull Sheet loaded: ${stats.filteredCount} Magic cards${filterMsg}`, 'success');
-                    this.updateProcessButton();
+                    this.updateFindButton();
                 } catch (error) {
                     debug(`❌ Error loading Pull Sheet: ${error.message}`, 'error');
                     alert('Error loading Pull Sheet: ' + error.message);
@@ -1044,45 +1302,63 @@
             }
             
             // ============================================================
-            // UPDATE PROCESS BUTTON
+            // UPDATE FIND BUTTON - Enables if Pull Sheet OR Quick Lookup text
             // ============================================================
             
-            updateProcessButton() {
-                this.processBtn.disabled = !(this.inventoryLoaded && this.pullSheetLoaded);
-                if (this.inventoryLoaded && this.pullSheetLoaded) {
-                    this.processBtn.title = 'Ready to process!';
-                } else if (!this.inventoryLoaded) {
-                    this.processBtn.title = 'Load inventory first (default or upload)';
+            updateFindButton() {
+                const hasInventory = this.inventoryLoaded;
+                const hasPullSheet = this.pullSheetLoaded && this.engine.filteredPullSheet.length > 0;
+                const quickText = this.quickLookupInput.value.trim();
+                const hasQuickText = quickText.length > 0;
+                
+                // Enable if we have inventory AND (Pull Sheet OR Quick Lookup text)
+                this.findBtn.disabled = !hasInventory || !(hasPullSheet || hasQuickText);
+                
+                if (!hasInventory) {
+                    this.findBtn.title = 'Load inventory first';
+                } else if (!hasPullSheet && !hasQuickText) {
+                    this.findBtn.title = 'Upload a Pull Sheet or paste card names';
+                } else if (hasPullSheet) {
+                    this.findBtn.title = 'Process Pull Sheet';
                 } else {
-                    this.processBtn.title = 'Upload a Pull Sheet CSV first';
+                    this.findBtn.title = 'Look up pasted cards';
                 }
             }
             
             // ============================================================
-            // PROCESS
+            // SINGLE FIND LOCATIONS BUTTON
             // ============================================================
             
-            async process() {
+            async findLocations() {
                 if (!this.inventoryLoaded) {
                     alert('Please load inventory first (default or upload).');
                     return;
                 }
-                if (!this.pullSheetLoaded) {
-                    alert('Please upload a Pull Sheet CSV first.');
-                    return;
-                }
                 
-                // Check if we have any Magic cards
-                if (this.engine.filteredPullSheet.length === 0) {
-                    alert(`No "Magic" cards found in the Pull Sheet.\n\nMake sure your Pull Sheet has a "Product Line" column with "Magic" values.`);
+                const hasPullSheet = this.pullSheetLoaded && this.engine.filteredPullSheet.length > 0;
+                const quickText = this.quickLookupInput.value.trim();
+                const hasQuickLookup = quickText.length > 0;
+                
+                if (!hasPullSheet && !hasQuickLookup) {
+                    alert('Please either:\n\n1. Upload a Pull Sheet CSV\n2. Paste card names in the Quick Lookup box\n\nThen click "Find Locations" again.');
                     return;
                 }
                 
                 this.loading.style.display = 'block';
-                this.processBtn.disabled = true;
+                this.findBtn.disabled = true;
+                this.findBtn.textContent = '⏳ Processing...';
                 
                 try {
-                    this.results = this.engine.process();
+                    if (hasPullSheet) {
+                        // Prefer Pull Sheet if available
+                        this.results = this.engine.processPullSheet();
+                        debug(`📊 Processed Pull Sheet: ${this.results.length} items`, 'success');
+                    } else if (hasQuickLookup) {
+                        // Otherwise use Quick Lookup
+                        this.results = this.engine.quickLookup(quickText);
+                        debug(`🔎 Quick lookup: ${this.results.length} items`, 'success');
+                    }
+                    
                     this.render();
                     this.resultsSection.classList.remove('hidden');
                     debug('🎉 All done!', 'success');
@@ -1092,7 +1368,8 @@
                 }
                 
                 this.loading.style.display = 'none';
-                this.processBtn.disabled = false;
+                this.findBtn.disabled = false;
+                this.findBtn.textContent = '🔍 Find Locations';
             }
             
             // ============================================================
@@ -1105,6 +1382,7 @@
                 const search = this.searchBox.value.toLowerCase();
                 const status = this.statusFilter.value;
                 const qtyFilter = this.qtyFilter.value;
+                const isQuick = this.engine.isQuickLookup;
                 
                 let filtered = this.results;
                 if (status !== 'all') {
@@ -1117,7 +1395,7 @@
                 }
                 if (search) {
                     filtered = filtered.filter(r => 
-                        String(r['Pull Sheet Name']).toLowerCase().includes(search) ||
+                        String(r['Pull Sheet Name'] || r['Search Query'] || '').toLowerCase().includes(search) ||
                         String(r['Location Display']).toLowerCase().includes(search) ||
                         String(r['Clean Name']).toLowerCase().includes(search)
                     );
@@ -1126,7 +1404,7 @@
                 const stats = this.engine.generateStats();
                 if (stats) {
                     this.statsRow.innerHTML = `
-                        <div class="stat-box"><div class="stat-number blue">${stats.total}</div><div class="stat-label">Magic Cards in Order</div></div>
+                        <div class="stat-box"><div class="stat-number blue">${stats.total}</div><div class="stat-label">${isQuick ? 'Cards Searched' : 'Magic Cards in Order'}</div></div>
                         <div class="stat-box"><div class="stat-number green">${stats.found}</div><div class="stat-label">✅ Found</div></div>
                         <div class="stat-box"><div class="stat-number red">${stats.notFound}</div><div class="stat-label">❌ Not Found</div></div>
                         <div class="stat-box"><div class="stat-number">${stats.rate}%</div><div class="stat-label">Match Rate</div></div>
@@ -1135,9 +1413,9 @@
                     `;
                 }
                 
-                this.rowCount.textContent = `Showing ${filtered.length} of ${this.results.length} Magic cards`;
+                this.rowCount.textContent = `Showing ${filtered.length} of ${this.results.length} items`;
                 
-                const totalQty = this.results.reduce((sum, r) => sum + r['Quantity'], 0);
+                const totalQty = this.results.reduce((sum, r) => sum + (r['Quantity'] || 1), 0);
                 const availQty = this.results.reduce((sum, r) => sum + (r['Total Available'] || r['Available Qty'] || 0), 0);
                 this.stockSummary.textContent = `📦 Total Ordered: ${totalQty} | Available: ${availQty}`;
                 
@@ -1149,13 +1427,14 @@
                 let html = `<table>
                     <thead><tr>
                         <th>Status</th>
-                        <th>Pull Sheet Name</th>
-                        <th>🧹 Clean</th>
-                        <th>Product Line</th>
-                        <th>Cond</th>
+                        <th>${isQuick ? 'Searched Card' : 'Pull Sheet Name'}</th>
+                        <th>🧹 Clean Name</th>
                         <th>Set</th>
+                        <th>#</th>
+                        <th>Cond</th>
                         <th>Qty</th>
                         <th>📍 Locations</th>
+                        <th>Match Type</th>
                         <th>Available</th>
                         <th>Stock</th>
                     </tr></thead><tbody>`;
@@ -1163,22 +1442,22 @@
                 for (const row of filtered) {
                     const statusClass = row['Status'] === 'Found' ? 'found' : 'notfound';
                     const stockDisplay = row['Stock Status'] === '⚠️ Low Stock' ? 
-                        `<span class="qty-warning">⚠️ ${row['Total Available'] || row['Available Qty']}/${row['Quantity']}</span>` : 
-                        `<span class="qty-ok">✅ ${row['Total Available'] || row['Available Qty']}/${row['Quantity']}</span>`;
+                        `<span class="qty-warning">⚠️ ${row['Total Available'] || row['Available Qty']}/${row['Quantity'] || 1}</span>` : 
+                        `<span class="qty-ok">✅ ${row['Total Available'] || row['Available Qty']}/${row['Quantity'] || 1}</span>`;
                     
-                    const cleanDisplay = row['Cleaned'] ? 
-                        `<span class="cleaned-badge">🧹 ${row['Clean Name']}</span>` : 
-                        row['Clean Name'] || '-';
+                    const cleanDisplay = row['Clean Name'] || '-';
+                    const matchType = row['Match Type'] || 'N/A';
+                    const matchScore = row['Match Score'] || 0;
+                    const matchDisplay = matchScore > 0 ? `${matchType} (${matchScore}%)` : 'No Match';
                     
                     let locationDisplay = '';
                     if (row['Status'] === 'Found' && row['Locations'] && row['Locations'].length > 0) {
                         const locItems = row['Locations'].map((loc, idx) => {
                             const qtyText = loc.quantity > 0 ? ` (${loc.quantity})` : '';
-                            const isDifferentCondition = loc.condition !== row['Condition'] && loc.condition;
-                            const badgeClass = isDifferentCondition ? 'location-badge-diff' : 'location-badge';
-                            const condHint = isDifferentCondition ? ` (${loc.condition})` : '';
+                            const condHint = loc.condition ? ` (${loc.condition})` : '';
+                            const setHint = loc.set ? ` ${loc.set}` : '';
                             return `<div class="location-item">
-                                <span class="${badgeClass}">${loc.location}${qtyText}${condHint}</span>
+                                <span class="location-badge">${loc.location}${qtyText}${condHint}${setHint}</span>
                                 ${idx === 0 ? '⭐' : ''}
                             </div>`;
                         });
@@ -1190,15 +1469,20 @@
                         locationDisplay = 'Not Found';
                     }
                     
+                    const nameDisplay = isQuick ? 
+                        (row['Search Query'] || row['Pull Sheet Name'] || '') : 
+                        (row['Pull Sheet Name'] || '');
+                    
                     html += `<tr>
                         <td><span class="${statusClass}">${row['Status']}</span></td>
-                        <td style="font-size:13px;max-width:150px;word-break:break-all;">${row['Pull Sheet Name']}</td>
+                        <td style="font-size:13px;max-width:150px;word-break:break-all;">${nameDisplay}</td>
                         <td style="font-size:12px;color:#6b7280;">${cleanDisplay}</td>
-                        <td><span class="filtered-badge">${row['Product Line'] || 'Magic'}</span></td>
-                        <td>${row['Condition']}</td>
-                        <td style="font-size:12px;max-width:100px;">${row['Set']}</td>
-                        <td>${row['Quantity']}</td>
+                        <td>${row['Set'] || ''}</td>
+                        <td>${row['Number'] || ''}</td>
+                        <td>${row['Condition'] || ''}</td>
+                        <td>${row['Quantity'] || 1}</td>
                         <td style="font-size:13px;max-width:250px;">${locationDisplay}</td>
+                        <td style="font-size:11px;color:#6b7280;">${matchDisplay}</td>
                         <td>${row['Total Available'] || row['Available Qty'] || 0}</td>
                         <td>${stockDisplay}</td>
                     </tr>`;
@@ -1226,14 +1510,14 @@
                     if (item.Locations && item.Locations.length > 0) {
                         for (const loc of item.Locations) {
                             flattenedFound.push({
-                                'Pull Sheet Name': item['Pull Sheet Name'],
-                                'Clean Name': item['Clean Name'],
-                                'Condition': loc.condition || item['Condition'] || '',
+                                'Name': item['Clean Name'] || item['Pull Sheet Name'] || item['Search Query'] || '',
                                 'Set': loc.set || item['Set'] || '',
-                                'Quantity': item['Quantity'],
+                                'Number': item['Number'] || '',
+                                'Condition': loc.condition || item['Condition'] || '',
+                                'Quantity': item['Quantity'] || 1,
                                 'Location': loc.location || 'Unknown',
                                 'Available Qty': loc.quantity || 0,
-                                'Stock Status': loc.quantity >= item['Quantity'] ? '✅ Enough' : '⚠️ Low Stock',
+                                'Stock Status': loc.quantity >= (item['Quantity'] || 1) ? '✅ Enough' : '⚠️ Low Stock',
                                 'IsFound': true
                             });
                         }
@@ -1241,11 +1525,11 @@
                 }
                 
                 const flattenedNotFound = notFoundItems.map(item => ({
-                    'Pull Sheet Name': item['Pull Sheet Name'],
-                    'Clean Name': item['Clean Name'] || item['Pull Sheet Name'],
-                    'Condition': item['Condition'] || '',
+                    'Name': item['Clean Name'] || item['Pull Sheet Name'] || item['Search Query'] || '',
                     'Set': item['Set'] || '',
-                    'Quantity': item['Quantity'],
+                    'Number': item['Number'] || '',
+                    'Condition': item['Condition'] || '',
+                    'Quantity': item['Quantity'] || 1,
                     'Location': '❌ NOT FOUND',
                     'Available Qty': 0,
                     'Stock Status': '❌ Not Found',
@@ -1261,7 +1545,7 @@
                 const summaryHTML = `
                     <div class="print-summary-item">
                         <div class="number">${this.results.length}</div>
-                        <div class="label">Magic Cards</div>
+                        <div class="label">${this.engine.isQuickLookup ? 'Cards Searched' : 'Magic Cards'}</div>
                     </div>
                     <div class="print-summary-item">
                         <div class="number" style="color: #22c55e;">${foundItems.length}</div>
@@ -1278,7 +1562,6 @@
                 `;
                 document.getElementById('printSummary').innerHTML = summaryHTML;
                 
-                // Found items
                 let foundHTML = '';
                 if (flattenedFound.length > 0) {
                     const groupedFound = {};
@@ -1298,15 +1581,18 @@
                                 `<span style="color: #f59e0b;">⚠️ Only ${item['Available Qty']} available</span>` : 
                                 `<span style="color: #22c55e;">✅ ${item['Available Qty']} in stock</span>`;
                             
+                            const details = [];
+                            if (item['Set']) details.push(item['Set']);
+                            if (item['Number']) details.push(`#${item['Number']}`);
+                            if (item['Condition']) details.push(item['Condition']);
+                            const detailStr = details.length > 0 ? `• ${details.join(' • ')}` : '';
+                            
                             foundHTML += `
                                 <div class="print-picking-item">
                                     <div>
                                         <span style="font-weight:600;margin-right:10px;">${totalPicks}.</span>
-                                        <span class="card-name">${item['Clean Name'] || item['Pull Sheet Name']}</span>
-                                        <span class="card-details">
-                                            ${item['Condition'] ? `• ${item['Condition']}` : ''}
-                                            ${item['Set'] ? `• ${item['Set']}` : ''}
-                                        </span>
+                                        <span class="card-name">${item['Name']}</span>
+                                        <span class="card-details">${detailStr}</span>
                                     </div>
                                     <div style="display:flex;align-items:center;gap:15px;">
                                         <span style="font-weight:600;">Qty: ${item['Quantity']}</span>
@@ -1321,21 +1607,23 @@
                 }
                 document.getElementById('printPickingList').innerHTML = foundHTML;
                 
-                // Not found items
                 let notFoundHTML = '';
                 if (flattenedNotFound.length > 0) {
                     let nfCount = 0;
                     for (const item of flattenedNotFound) {
                         nfCount++;
+                        const details = [];
+                        if (item['Set']) details.push(item['Set']);
+                        if (item['Number']) details.push(`#${item['Number']}`);
+                        if (item['Condition']) details.push(item['Condition']);
+                        const detailStr = details.length > 0 ? `• ${details.join(' • ')}` : '';
+                        
                         notFoundHTML += `
                             <div class="print-picking-item" style="border-left: 3px solid #ef4444; background: #fef2f2;">
                                 <div>
                                     <span style="font-weight:600;margin-right:10px;">${nfCount}.</span>
-                                    <span class="card-name">${item['Clean Name'] || item['Pull Sheet Name']}</span>
-                                    <span class="card-details">
-                                        ${item['Condition'] ? `• ${item['Condition']}` : ''}
-                                        ${item['Set'] ? `• ${item['Set']}` : ''}
-                                    </span>
+                                    <span class="card-name">${item['Name']}</span>
+                                    <span class="card-details">${detailStr}</span>
                                     <span class="not-found-label" style="margin-left:10px;">❌ NOT IN DATABASE</span>
                                 </div>
                                 <div style="display:flex;align-items:center;gap:15px;">
@@ -1346,7 +1634,7 @@
                         `;
                     }
                 } else {
-                    notFoundHTML = '<p style="color: #22c55e; padding: 10px;">🎉 All Magic cards found in inventory!</p>';
+                    notFoundHTML = '<p style="color: #22c55e; padding: 10px;">🎉 All items found in inventory!</p>';
                 }
                 document.getElementById('printNotFoundList').innerHTML = notFoundHTML;
                 
@@ -1392,8 +1680,14 @@
                 this.pullSheetFileName.textContent = 'Drop Pull Sheet CSV here';
                 this.pullSheetFileDetails.textContent = '';
                 this.pullSheetZone.classList.remove('has-file');
+                this.pullSheetStatusText.textContent = 'None loaded';
                 
-                this.processBtn.disabled = true;
+                this.quickLookupInput.value = '';
+                this.quickLookupStatus.innerHTML = '';
+                this.quickStatusText.textContent = 'Empty';
+                this.engine.quickLookupResults = [];
+                
+                this.findBtn.disabled = true;
                 this.resultsSection.classList.add('hidden');
                 this.tableContainer.innerHTML = '';
                 this.statsRow.innerHTML = '';
@@ -1409,10 +1703,11 @@
                 this.engine.pullSheet = [];
                 this.engine.filteredPullSheet = [];
                 this.engine.results = [];
+                this.engine.isQuickLookup = false;
                 
                 if (this.engine.inventory && this.engine.inventory.length > 0) {
                     this.inventoryLoaded = true;
-                    this.updateProcessButton();
+                    this.updateFindButton();
                 } else {
                     this.loadDefaultInventory();
                 }
@@ -1424,33 +1719,32 @@
             
             loadSample() {
                 const sampleInventory = [
-                    ['Product Name', 'Where is it?', 'Condition', 'Add to Quantity', 'Total Quantity', 'Set Name', 'Rarity'],
-                    ['Misty Rainforest', 'Box 12 - Shelf A - Section 3', 'Near Mint', '3', '5', 'Modern Horizons 2', 'Rare'],
-                    ['Misty Rainforest', 'Box 14 - Shelf B - Section 1', 'Near Mint', '2', '3', 'Modern Horizons 2', 'Rare'],
-                    ['Misty Rainforest', 'Box 8 - Shelf C - Section 2', 'Lightly Played', '1', '2', 'Modern Horizons 2', 'Rare'],
-                    ['Scalding Tarn', 'Box 12 - Shelf A - Section 1', 'Near Mint', '2', '4', 'Modern Horizons 2', 'Rare'],
-                    ['Scalding Tarn', 'Box 20 - Shelf D - Section 3', 'Lightly Played', '3', '5', 'Modern Horizons 2', 'Rare'],
-                    ['Arid Mesa', 'Box 14 - Shelf B - Section 2', 'Lightly Played', '1', '2', 'Modern Horizons 2', 'Rare'],
-                    ['Marsh Flats', 'Box 12 - Shelf A - Section 2', 'Near Mint', '4', '6', 'Modern Horizons 2', 'Rare'],
-                    ['Force of Will', 'Box 8 - Shelf C - Section 1', 'Near Mint', '2', '3', 'Double Masters', 'Mythic'],
-                    ['Rayquaza VMAX', 'Box 20 - Shelf D - Section 1', 'Near Mint', '2', '3', 'Evolving Skies', 'Mythic'],
-                    ['Dragonite V', 'Box 20 - Shelf D - Section 2', 'Near Mint', '3', '5', 'Evolving Skies', 'Rare'],
-                    ['Accesscode Talker', 'Box 30 - Shelf F - Section 1', 'Near Mint', '2', '4', 'Phantom Rage', 'Rare'],
+                    ['Product Name', 'Where is it?', 'Condition', 'Add to Quantity', 'Total Quantity', 'Set Name', 'Number', 'Rarity'],
+                    ['Misty Rainforest', 'Box 12 - Shelf A - Section 3', 'Near Mint', '3', '5', 'Modern Horizons 2', '123', 'Rare'],
+                    ['Misty Rainforest', 'Box 14 - Shelf B - Section 1', 'Near Mint', '2', '3', 'Modern Horizons 2', '123', 'Rare'],
+                    ['Misty Rainforest', 'Box 8 - Shelf C - Section 2', 'Lightly Played', '1', '2', 'Modern Horizons 2', '123', 'Rare'],
+                    ['Scalding Tarn', 'Box 12 - Shelf A - Section 1', 'Near Mint', '2', '4', 'Modern Horizons 2', '124', 'Rare'],
+                    ['Scalding Tarn', 'Box 20 - Shelf D - Section 3', 'Lightly Played', '3', '5', 'Modern Horizons 2', '124', 'Rare'],
+                    ['Arid Mesa', 'Box 14 - Shelf B - Section 2', 'Lightly Played', '1', '2', 'Modern Horizons 2', '125', 'Rare'],
+                    ['Marsh Flats', 'Box 12 - Shelf A - Section 2', 'Near Mint', '4', '6', 'Modern Horizons 2', '126', 'Rare'],
+                    ['Force of Will', 'Box 8 - Shelf C - Section 1', 'Near Mint', '2', '3', 'Double Masters', '27', 'Mythic'],
+                    ['Rayquaza VMAX', 'Box 20 - Shelf D - Section 1', 'Near Mint', '2', '3', 'Evolving Skies', '123', 'Mythic'],
+                    ['Dragonite V', 'Box 20 - Shelf D - Section 2', 'Near Mint', '3', '5', 'Evolving Skies', '234', 'Rare'],
+                    ['Accesscode Talker', 'Box 30 - Shelf F - Section 1', 'Near Mint', '2', '4', 'Phantom Rage', '86', 'Rare'],
                 ];
                 
-                // Pull sheet with Product Line column for filtering
                 const samplePullSheet = [
-                    ['Product Line', 'Product Name', 'Condition', 'Set', 'Quantity'],
-                    ['Magic', 'E80CF076-C15CFB-5F435|E80CF076-D6DE05-8E8A5 Misty Rainforest', 'Near Mint', 'Modern Horizons 2', '2'],
-                    ['Magic', 'Scalding Tarn', 'Near Mint', 'Modern Horizons 2', '1'],
-                    ['Magic', 'Marsh Flats', 'Near Mint', 'Modern Horizons 2', '2'],
-                    ['Magic', 'Arid Mesa', 'Lightly Played', 'Modern Horizons 2', '1'],
-                    ['Magic', 'Force of Will', 'Near Mint', 'Double Masters', '1'],
-                    ['Pokemon', 'Rayquaza VMAX', 'Near Mint', 'Evolving Skies', '1'], // Should be filtered out
-                    ['Magic', 'Dragonite V', 'Near Mint', 'Evolving Skies', '1'],
-                    ['Magic', 'Accesscode Talker', 'Near Mint', 'Phantom Rage', '1'],
-                    ['Magic', 'Black Lotus', 'Near Mint', 'Alpha', '1'],
-                    ['Magic', 'Scalding Tarn', 'Near Mint', 'Modern Horizons 2', '3'],
+                    ['Product Line', 'Product Name', 'Condition', 'Set', 'Number', 'Quantity'],
+                    ['Magic', 'E80CF076-C15CFB-5F435|E80CF076-D6DE05-8E8A5 Misty Rainforest', 'Near Mint', 'Modern Horizons 2', '123', '2'],
+                    ['Magic', 'Scalding Tarn', 'Near Mint', 'Modern Horizons 2', '124', '1'],
+                    ['Magic', 'Marsh Flats', 'Near Mint', 'Modern Horizons 2', '126', '2'],
+                    ['Magic', 'Arid Mesa', 'Lightly Played', 'Modern Horizons 2', '125', '1'],
+                    ['Magic', 'Force of Will', 'Near Mint', 'Double Masters', '27', '1'],
+                    ['Pokemon', 'Rayquaza VMAX', 'Near Mint', 'Evolving Skies', '123', '1'],
+                    ['Magic', 'Dragonite V', 'Near Mint', 'Evolving Skies', '234', '1'],
+                    ['Magic', 'Accesscode Talker', 'Near Mint', 'Phantom Rage', '86', '1'],
+                    ['Magic', 'Black Lotus', 'Near Mint', 'Alpha', '1', '1'],
+                    ['Magic', 'Scalding Tarn', 'Near Mint', 'Modern Horizons 2', '124', '3'],
                 ];
                 
                 this.engine.inventory = sampleInventory.map(row => {
@@ -1482,7 +1776,6 @@
                     return obj;
                 });
                 
-                // Load pull sheet with filtering
                 this.engine.pullSheet = pullData;
                 this.engine.filteredPullSheet = pullData.filter(row => {
                     const productLine = this.engine.findColumn(row, ['Product Line', 'ProductLine', 'Line']);
@@ -1490,16 +1783,18 @@
                 });
                 this.engine.filteredCount = this.engine.filteredPullSheet.length;
                 this.engine.totalPullSheetRows = pullData.length;
+                this.engine.isQuickLookup = false;
                 
                 this.pullSheetLoaded = true;
                 this.pullSheetFileName.textContent = `✅ Sample Pull Sheet - ${this.engine.filteredCount} Magic cards`;
-                this.pullSheetFileDetails.textContent = `${this.engine.filteredCount} of ${pullData.length} rows kept (filtered out 1 Pokemon)`;
+                this.pullSheetFileDetails.textContent = `${this.engine.filteredCount} of ${pullData.length} rows kept`;
                 this.pullSheetZone.classList.add('has-file');
+                this.pullSheetStatusText.textContent = `${this.engine.filteredCount} cards`;
                 
                 debug(`📄 Sample pull sheet loaded: ${this.engine.filteredCount} Magic cards`, 'success');
                 
-                this.updateProcessButton();
-                setTimeout(() => this.process(), 500);
+                this.updateFindButton();
+                setTimeout(() => this.findLocations(), 500);
             }
         }
         
