@@ -86,6 +86,7 @@
         
         .found { background: #dcfce7; color: #166534; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
         .notfound { background: #fee2e2; color: #991b1b; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
+        .ambiguous { background: #fef3c7; color: #92400e; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
         .pulled-badge { background: #fef3c7; color: #92400e; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
         .location-badge { background: #dbeafe; color: #1e40af; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; display: inline-block; margin: 2px 0; cursor: pointer; }
         .location-badge:hover { opacity: 0.8; }
@@ -444,10 +445,7 @@
                 <div class="results-stats no-print" id="statsRow"></div>
                 
                 <!-- Selection Mode Indicator -->
-                <div class="selection-mode-indicator" id="selectionIndicator">
-                    <span>✋ Select a location to pull from</span>
-                    <button class="btn btn-secondary btn-sm" id="cancelSelectionBtn">Cancel</button>
-                </div>
+
                 
                 <!-- Pull Log -->
                 <div class="card no-print" id="pullLogCard" style="display:none;">
@@ -455,6 +453,7 @@
                         <h4>📋 Pull Log</h4>
                         <span style="font-size:13px;color:#6b7280;" id="pullLogCount">0 items pulled</span>
                     </div>
+                    <div id="pullLogSummary" style="margin:10px 0;padding:10px 12px;background:#f8fafc;border-radius:8px;border:1px solid #e5e7eb;"></div>
                     <div class="pulled-log" id="pullLog"></div>
                     <div class="action-buttons">
                         <button class="btn btn-success btn-sm" id="downloadUpdatedInventoryBtn">📥 Download Updated Inventory</button>
@@ -477,6 +476,7 @@
                             <option value="ok">✅ Enough</option>
                         </select>
                         <button class="btn btn-success" id="downloadBtn">📊 Excel</button>
+                        <button class="btn btn-warning" id="pullAllBtn">📦 Pull All</button>
                         <button class="btn btn-print" id="printBtn">🖨️ Print</button>
                     </div>
                     
@@ -521,6 +521,175 @@
         
         const DEFAULT_INVENTORY_FILE = 'inventory.csv';
         const PRODUCT_LINE_FILTER = 'Magic';
+
+        // Unified stock status vocabulary used across pull-sheet and quick-lookup modes.
+        const STOCK = {
+            IN_STOCK: '✅ In Stock',
+            LOW: '⚠️ Low Stock',
+            OUT: '⚠️ Out of Stock'
+        };
+
+        // Match status vocabulary. 'Ambiguous' means the query did not provide
+        // enough information to identify exactly one printing.
+        const MATCH = {
+            FOUND: 'Found',
+            AMBIGUOUS: 'Ambiguous',
+            NOT_FOUND: 'Not Found'
+        };
+
+        // Column names that may hold the authoritative stock count.
+        // Prefer a future 'Stock Qty' header, fall back to the TCGPlayer-style
+        // 'Add to Quantity' currently in use.
+        const STOCK_QTY_COLUMNS = ['Stock Qty', 'Add to Quantity', 'AddToQuantity', 'Add Quantity'];
+
+        // Normalize a value for identity comparison.
+        function normalizeKey(value) {
+            if (value === null || value === undefined) return '';
+            return String(value).toLowerCase().trim().replace(/\s+/g, ' ');
+        }
+
+        // Build a stable identity string for a row: name|set|number.
+        function rowIdentity(row) {
+            const name = normalizeKey(row['Product Name'] || row['ProductName'] || row['Name'] || row['Card Name']);
+            const set  = normalizeKey(row['Set Name'] || row['Set'] || row['SetName']);
+            const num  = normalizeKey(row['Number'] || row['Card Number'] || row['Card#']);
+            return name + '|' + set + '|' + num;
+        }
+
+        // ============================================================
+        // SCRYFALL COLOR LOOKUP
+        // Fetches color identity for cards so the printed picking list can
+        // be sorted W > U > B > R > G > multicolor > colorless > land within
+        // each box. Results are cached in localStorage; set-name->code map is
+        // cached separately. Failures degrade gracefully (unsorted).
+        // ============================================================
+
+        const SCRYFALL_CACHE_KEY = 'forge-scryfall-colors-v1';
+
+        const COLOR_ORDER = { W: 0, U: 1, B: 2, R: 3, G: 4 };
+
+        function loadColorCache() {
+            try { return JSON.parse(localStorage.getItem(SCRYFALL_CACHE_KEY) || '{}'); }
+            catch (e) { return {}; }
+        }
+
+        function saveColorCache(cache) {
+            try { localStorage.setItem(SCRYFALL_CACHE_KEY, JSON.stringify(cache)); }
+            catch (e) { /* quota or private mode -- ignore */ }
+        }
+
+        // Strip trailing parenthetical treatment labels that TCGPlayer adds to
+        // product names but Scryfall does not use, e.g. "Preordain (White Border)"
+        // -> "Preordain". The collector number still disambiguates the printing.
+        function stripNameSuffix(name) {
+            if (!name) return '';
+            let n = String(name).trim();
+            // Remove one or more trailing "(...)" groups, e.g. "Card (Borderless) (Foil)".
+            let prev;
+            do {
+                prev = n;
+                n = n.replace(/\s*\([^()]*\)\s*$/, '').trim();
+            } while (n !== prev && n.length > 0);
+            return n;
+        }
+
+        // Rank a Scryfall card object for box-order sorting.
+        // Lower rank = pulled first. W0 U1 B2 R3 G4 multi5 colorless6 land7.
+        function colorRankFromScryfall(sc) {
+            if (!sc) return 6;
+            const typeLine = String(sc.type_line || '');
+            if (/\bland\b/i.test(typeLine)) return 7;
+            const ci = Array.isArray(sc.color_identity) ? sc.color_identity : [];
+            if (ci.length === 0) return 6;
+            if (ci.length > 1) return 5;
+            const r = COLOR_ORDER[ci[0]];
+            return (typeof r === 'number') ? r : 6;
+        }
+
+        // Given an array of { name, number, set } cards, return a map of
+        // "setLower|number" -> { rank, colors, name }. Uses Scryfall's
+        // search endpoint with an exact name + collector number, which uniquely
+        // identifies a printing without relying on set-name matching (TCGPlayer
+        // set names and Scryfall set names frequently differ). Cached forever.
+        async function fetchColorRanks(cards) {
+            const cache = loadColorCache();
+            const result = {};
+            const need = [];
+
+            for (const c of cards) {
+                const key = String(c.set || '').toLowerCase().trim() + '|' + String(c.number || '').trim();
+                if (cache[key]) {
+                    result[key] = cache[key];
+                } else {
+                    need.push({ key, name: c.name, number: c.number });
+                }
+            }
+
+            if (need.length === 0) return result;
+
+            for (const n of need) {
+                if (!n.name || !n.number) continue;
+                try {
+                    const cleanName = stripNameSuffix(n.name) || n.name;
+                    const q = encodeURIComponent('!"' + cleanName + '" number:' + String(n.number).trim());
+                    const resp = await fetch('https://api.scryfall.com/cards/search?q=' + q, {
+                        headers: { 'Accept': 'application/json' }
+                    });
+                    if (resp.status === 200) {
+                        const data = await resp.json();
+                        if (data.total_cards === 1 && data.data && data.data[0]) {
+                            const sc = data.data[0];
+                            const entry = {
+                                rank: colorRankFromScryfall(sc),
+                                colors: sc.color_identity || [],
+                                name: sc.name || ''
+                            };
+                            cache[n.key] = entry;
+                            result[n.key] = entry;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Scryfall lookup failed for ' + n.name + ' #' + n.number + ':', e.message);
+                }
+                // Gentle pacing to respect Scryfall's rate guidance.
+                await new Promise(res => setTimeout(res, 100));
+            }
+
+            saveColorCache(cache);
+            return result;
+        }
+
+        // Read the authoritative stock quantity from a row.
+        function getStockQty(row) {
+            for (const col of STOCK_QTY_COLUMNS) {
+                if (row[col] !== undefined && row[col] !== null && String(row[col]).trim() !== '') {
+                    const n = parseInt(row[col]);
+                    if (!isNaN(n)) return n;
+                }
+            }
+            return 0;
+        }
+
+        // Return the column name that actually holds the stock count for a row.
+        function getStockColumn(row) {
+            for (const col of STOCK_QTY_COLUMNS) {
+                if (row[col] !== undefined && row[col] !== null && String(row[col]).trim() !== '') {
+                    return col;
+                }
+            }
+            return null;
+        }
+
+        // Escape CSV-derived text before interpolating into HTML.
+        function escapeHtml(value) {
+            if (value === null || value === undefined) return '';
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
         
         // ============================================================
         // PULL TRACKING
@@ -528,8 +697,26 @@
         
         let pullLog = [];
         let inventoryModifications = {};
+
+        // Stable identity for inventory rows, keyed by object reference.
+        // Kept OUT of the row object so it never leaks into CSV/XLSX exports.
+        const rowIds = new WeakMap();
+        let nextRowId = 0;
+
+        function assignRowId(row) {
+            if (row && typeof row === 'object' && !rowIds.has(row)) {
+                rowIds.set(row, 'inv-' + (nextRowId++));
+            }
+            return rowIds.get(row);
+        }
+
+        function getRowId(row) {
+            return row && typeof row === 'object' ? rowIds.get(row) || null : null;
+        }
         
         function recordPull(cardName, location, quantity, pulledFrom, originalQty) {
+            const rowId = assignRowId(pulledFrom) || 'unknown';
+
             const entry = {
                 id: Date.now() + Math.random() * 1000,
                 timestamp: new Date().toLocaleString(),
@@ -541,50 +728,53 @@
                 newQty: originalQty - quantity
             };
             pullLog.push(entry);
-            
-            const key = JSON.stringify(pulledFrom);
-            if (!inventoryModifications[key]) {
-                inventoryModifications[key] = {
+
+            if (!inventoryModifications[rowId]) {
+                inventoryModifications[rowId] = {
                     originalQty: originalQty,
-                    newQty: originalQty - quantity,
                     pulled: []
                 };
-            } else {
-                inventoryModifications[key].newQty -= quantity;
-                inventoryModifications[key].pulled.push(entry);
             }
-            
+            inventoryModifications[rowId].pulled.push(entry);
+
+            // Recompute from original minus total pulled (never decrement incrementally).
+            const totalPulled = inventoryModifications[rowId].pulled
+                .reduce((sum, p) => sum + p.quantity, 0);
+            inventoryModifications[rowId].newQty = Math.max(0, originalQty - totalPulled);
+
             return entry;
         }
         
         function undoAllPulls() {
             pullLog = [];
             inventoryModifications = {};
+            // Note: rowIds intentionally persist -- the same rows keep the same identity
+            // across undo/re-pull, so modifications clear cleanly.
             document.getElementById('pullLogCard').style.display = 'none';
             document.getElementById('pullLog').innerHTML = '';
             document.getElementById('pullLogCount').textContent = '0 items pulled';
         }
         
         function getUpdatedInventory(originalInventory) {
-            const updated = originalInventory.map(item => ({...item}));
-            
-            for (const [key, mod] of Object.entries(inventoryModifications)) {
-                const item = updated.find((_, idx) => {
-                    const itemKey = JSON.stringify(_);
-                    return itemKey === key;
-                });
-                if (item) {
-                    const currentQty = parseInt(item['Total Quantity'] || 0);
-                    const newQty = currentQty - mod.pulled.reduce((sum, p) => sum + p.quantity, 0);
-                    item['Total Quantity'] = String(Math.max(0, newQty));
-                    
-                    if (item['Add to Quantity'] !== undefined) {
-                        const addQty = parseInt(item['Add to Quantity'] || 0);
-                        item['Add to Quantity'] = String(Math.max(0, addQty - mod.pulled.reduce((sum, p) => sum + p.quantity, 0)));
-                    }
+            // Map over the ORIGINAL row references so the WeakMap lookup works,
+            // then shallow-copy each row before mutating.
+            const updated = originalInventory.map(item => {
+                const copy = {...item};
+                const rowId = getRowId(item);
+                const mod = rowId ? inventoryModifications[rowId] : null;
+                if (!mod) return copy;
+
+                const totalPulled = mod.pulled.reduce((sum, p) => sum + p.quantity, 0);
+
+                // Deduct only from the column that actually holds the stock count.
+                const stockCol = getStockColumn(copy);
+                if (stockCol) {
+                    const current = parseInt(copy[stockCol] || 0);
+                    copy[stockCol] = String(Math.max(0, current - totalPulled));
                 }
-            }
-            
+                return copy;
+            });
+
             return updated;
         }
         
@@ -710,6 +900,7 @@
             
             async loadInventoryFromFile(file) {
                 this.inventory = await this.parseCSV(file);
+                this.inventory.forEach(assignRowId);
                 return this.inventory;
             }
             
@@ -717,6 +908,7 @@
                 return this.parseCSVText(csvText, filename)
                     .then(data => {
                         this.inventory = data;
+                        this.inventory.forEach(assignRowId);
                         return data;
                     });
             }
@@ -760,110 +952,132 @@
                 return name;
             }
             
-            findCardLocations(productName, cardNumber, set, condition) {
-                if (!this.inventory || this.inventory.length === 0) return [];
-                
-                const clean = (str) => {
-                    if (!str) return '';
-                    return String(str).toLowerCase().trim().replace(/\s+/g, ' ');
-                };
-                
-                const searchName = clean(productName);
-                const searchNumber = clean(cardNumber);
-                const searchSet = clean(set);
-                const searchCondition = clean(condition);
-                
-                const matches = [];
-                
+            // Exact-identity matcher. Returns a structured result:
+            //   { status: 'Found' | 'Ambiguous' | 'Not Found', matches: [...], reason: string }
+            // No fuzzy fallback: a card is either identified exactly, or it isn't.
+            findCardMatches(productName, cardNumber, set, condition) {
+                const result = { status: MATCH.NOT_FOUND, matches: [], reason: '' };
+                if (!this.inventory || this.inventory.length === 0) {
+                    result.reason = 'empty inventory';
+                    return result;
+                }
+
+                const searchName = normalizeKey(productName);
+                const searchNumber = normalizeKey(cardNumber);
+                const searchSet = normalizeKey(set);
+                const searchCondition = normalizeKey(condition);
+
+                if (!searchName) {
+                    result.reason = 'no name supplied';
+                    return result;
+                }
+
+                // Gather in-stock rows whose name matches. Stock rows only.
+                const inStock = [];
                 for (const item of this.inventory) {
-                    const itemName = clean(this.findColumn(item, ['Product Name', 'ProductName', 'Name', 'Card Name']));
-                    const itemNumber = clean(this.findColumn(item, ['Number', 'Card Number', 'Card#']));
-                    const itemSet = clean(this.findColumn(item, ['Set Name', 'Set', 'SetName']));
-                    const itemCondition = clean(this.findColumn(item, ['Condition', 'Cond']));
-                    const itemQty = parseInt(this.findColumn(item, ['Add to Quantity', 'AddToQuantity', 'Add Quantity'])) || 
-                                    parseInt(this.findColumn(item, ['Total Quantity', 'TotalQuantity', 'Quantity', 'Qty'])) || 0;
-                    
-                    if (itemQty <= 0) continue;
-                    
-                    if (itemName === searchName && 
-                        itemNumber === searchNumber && 
-                        itemSet === searchSet &&
-                        itemCondition === searchCondition) {
-                        matches.push({ item, score: 100, matchType: 'Exact: Name + Number + Set + Condition' });
-                        continue;
+                    if (getStockQty(item) <= 0) continue;
+                    const itemName = normalizeKey(item['Product Name'] || item['ProductName'] || item['Name'] || item['Card Name']);
+                    if (itemName !== searchName) continue;
+                    inStock.push(item);
+                }
+
+                if (inStock.length === 0) {
+                    result.reason = 'no in-stock rows with that name';
+                    return result;
+                }
+
+                // Determine which identities are candidates, based on what the query supplied.
+                const identityOf = (item) => {
+                    const s = normalizeKey(item['Set Name'] || item['Set'] || item['SetName']);
+                    const n = normalizeKey(item['Number'] || item['Card Number'] || item['Card#']);
+                    return s + '|' + n;
+                };
+
+                let candidates;
+                let reason;
+
+                if (searchSet && searchNumber) {
+                    const want = searchSet + '|' + searchNumber;
+                    candidates = inStock.filter(item => identityOf(item) === want);
+                    reason = 'name+set+number';
+                } else if (searchSet) {
+                    const setRows = inStock.filter(item =>
+                        normalizeKey(item['Set Name'] || item['Set'] || item['SetName']) === searchSet
+                    );
+                    const distinct = new Set(setRows.map(identityOf));
+                    if (distinct.size === 0) {
+                        result.reason = 'name+set given, no in-stock rows in that set';
+                        return result;
                     }
-                    
-                    if (itemName === searchName && 
-                        itemNumber === searchNumber && 
-                        itemSet === searchSet) {
-                        matches.push({ item, score: 90, matchType: 'Exact: Name + Number + Set' });
-                        continue;
+                    if (distinct.size > 1) {
+                        result.status = MATCH.AMBIGUOUS;
+                        result.matches = setRows.map(item => ({ item, matchType: 'Ambiguous: multiple printings in set' }));
+                        result.reason = 'name+set matched ' + distinct.size + ' distinct printings';
+                        return result;
                     }
-                    
-                    if (itemName === searchName && 
-                        itemSet === searchSet &&
-                        itemCondition === searchCondition) {
-                        matches.push({ item, score: 85, matchType: 'Exact: Name + Set + Condition' });
-                        continue;
+                    candidates = setRows;
+                    reason = 'name+set (unique printing)';
+                } else {
+                    const distinct = new Set(inStock.map(identityOf));
+                    if (distinct.size > 1) {
+                        result.status = MATCH.AMBIGUOUS;
+                        result.matches = inStock.map(item => ({ item, matchType: 'Ambiguous: multiple printings' }));
+                        result.reason = 'name only matched ' + distinct.size + ' distinct printings';
+                        return result;
                     }
-                    
-                    if (itemName === searchName && 
-                        itemNumber === searchNumber) {
-                        matches.push({ item, score: 80, matchType: 'Exact: Name + Number' });
-                        continue;
-                    }
-                    
-                    if (itemName === searchName && 
-                        itemSet === searchSet) {
-                        matches.push({ item, score: 70, matchType: 'Exact: Name + Set' });
-                        continue;
-                    }
-                    
-                    if (itemName === searchName) {
-                        matches.push({ item, score: 60, matchType: 'Exact: Name only' });
-                        continue;
-                    }
-                    
-                    if ((itemName.includes(searchName) || searchName.includes(itemName)) && 
-                        itemSet === searchSet) {
-                        matches.push({ item, score: 50, matchType: 'Partial Name + Set' });
-                        continue;
-                    }
-                    
-                    if (itemName.includes(searchName) || searchName.includes(itemName)) {
-                        matches.push({ item, score: 40, matchType: 'Partial Name' });
-                        continue;
+                    candidates = inStock;
+                    reason = 'name (unique printing)';
+                }
+
+                if (candidates.length === 0) {
+                    result.reason = 'no exact identity match (' + reason + ')';
+                    return result;
+                }
+
+                // Prefer rows whose condition matches the query, if a condition was given.
+                let conditionPrefixed = false;
+                if (searchCondition) {
+                    const conditioned = candidates.filter(item =>
+                        normalizeKey(item['Condition'] || item['Cond']) === searchCondition
+                    );
+                    if (conditioned.length > 0) {
+                        candidates = conditioned;
+                        conditionPrefixed = true;
                     }
                 }
-                
+
+                result.status = MATCH.FOUND;
+                result.reason = reason + (conditionPrefixed ? ' + condition' : '');
+                result.matches = candidates.map(item => ({
+                    item,
+                    matchType: 'Exact: ' + reason + (conditionPrefixed ? ' + condition' : ''),
+                    score: 100
+                }));
+
+                return result;
+            }
+
+            // Backwards-compatible wrapper: returns just the matches array,
+            // sorted by location for stable display.
+            findCardLocations(productName, cardNumber, set, condition) {
+                const res = this.findCardMatches(productName, cardNumber, set, condition);
+                const matches = res.matches.slice();
                 matches.sort((a, b) => {
-                    if (b.score !== a.score) return b.score - a.score;
                     const locA = a.item['Where is it?'] || '';
                     const locB = b.item['Where is it?'] || '';
-                    return locA.localeCompare(locB);
+                    return String(locA).localeCompare(String(locB));
                 });
-                
                 return matches;
             }
             
             getAvailableQuantity(item) {
-                let qty = this.findColumn(item, ['Add to Quantity', 'AddToQuantity', 'Add Quantity']);
-                if (qty && !isNaN(parseInt(qty))) {
-                    return parseInt(qty);
-                }
-                
-                qty = this.findColumn(item, ['Total Quantity', 'TotalQuantity', 'Quantity', 'Qty']);
-                if (qty && !isNaN(parseInt(qty))) {
-                    return parseInt(qty);
-                }
-                
-                return 0;
+                return getStockQty(item);
             }
             
             getCurrentQuantity(item, originalItem) {
-                const itemKey = JSON.stringify(originalItem);
-                if (inventoryModifications[itemKey]) {
-                    return inventoryModifications[itemKey].newQty;
+                const rowId = getRowId(originalItem) || getRowId(item);
+                if (rowId && inventoryModifications[rowId]) {
+                    return inventoryModifications[rowId].newQty;
                 }
                 return this.getAvailableQuantity(item);
             }
@@ -951,7 +1165,7 @@
                         
                         const totalAvailable = locationsWithQty.reduce((sum, l) => sum + l.quantity, 0);
                         result['Available Qty'] = totalAvailable;
-                        result['Stock Status'] = totalAvailable > 0 ? '✅ In Stock' : '⚠️ Out of Stock';
+                        result['Stock Status'] = totalAvailable > 0 ? STOCK.IN_STOCK : STOCK.OUT;
                         foundCount++;
                     }
                     
@@ -1010,7 +1224,12 @@
                         continue;
                     }
                     
-                    const matches = this.findCardLocations(cleanName, cardNumber, set, condition);
+                    const matchResult = this.findCardMatches(cleanName, cardNumber, set, condition);
+                    const matches = matchResult.matches.slice().sort((a, b) => {
+                        const locA = a.item['Where is it?'] || '';
+                        const locB = b.item['Where is it?'] || '';
+                        return String(locA).localeCompare(String(locB));
+                    });
                     
                     const result = {
                         'Pull Sheet Name': rawName,
@@ -1020,7 +1239,8 @@
                         'Set': set,
                         'Number': cardNumber,
                         'Quantity': qty,
-                        'Status': 'Not Found',
+                        'Status': matchResult.status,
+                        'StatusReason': matchResult.reason,
                         'Locations': [],
                         'Location Display': 'Not Found',
                         'Match Type': '',
@@ -1030,15 +1250,32 @@
                         'Stock Status': 'No Stock',
                         'MultipleLocations': false,
                         'OriginalItem': null,
+                        'IdentityWarning': '',
                         'IsPulled': false
                     };
                     
                     if (matches.length > 0) {
                         const bestMatch = matches[0];
-                        result['Status'] = 'Found';
                         result['Match Type'] = bestMatch.matchType;
-                        result['Match Score'] = bestMatch.score;
+                        result['Match Score'] = bestMatch.score || 100;
                         result['OriginalItem'] = bestMatch.item;
+                        
+                        // Compare pull-sheet identity against the matched inventory row.
+                        // The pull sheet is canonical for display; a mismatch is a warning,
+                        // not a silent substitution.
+                        const invSet = normalizeKey(bestMatch.item['Set Name'] || bestMatch.item['Set'] || bestMatch.item['SetName']);
+                        const invNum = normalizeKey(bestMatch.item['Number'] || bestMatch.item['Card Number'] || bestMatch.item['Card#']);
+                        const invCond = normalizeKey(bestMatch.item['Condition'] || bestMatch.item['Cond']);
+                        const psSet = normalizeKey(set);
+                        const psNum = normalizeKey(cardNumber);
+                        const psCond = normalizeKey(condition);
+                        const diffs = [];
+                        if (psSet && invSet && psSet !== invSet) diffs.push('set');
+                        if (psNum && invNum && psNum !== invNum) diffs.push('number');
+                        if (psCond && invCond && psCond !== invCond) diffs.push('condition');
+                        if (diffs.length > 0) {
+                            result['IdentityWarning'] = 'inventory differs on: ' + diffs.join(', ');
+                        }
                         
                         const locationsWithQty = matches.map(m => {
                             const currentQty = this.getCurrentQuantity(m.item, m.item);
@@ -1057,14 +1294,28 @@
                         result['Locations'] = locationsWithQty;
                         result['MultipleLocations'] = matches.length > 1;
                         
-                        const locationParts = locationsWithQty.map(l => 
-                            `${l.location} (${l.quantity})`
+                        // Recommended location: highest quantity, tie-break by location string.
+                        let recIdx = 0;
+                        for (let i = 1; i < locationsWithQty.length; i++) {
+                            const a = locationsWithQty[i];
+                            const b = locationsWithQty[recIdx];
+                            if (a.quantity > b.quantity) { recIdx = i; continue; }
+                            if (a.quantity === b.quantity) {
+                                const la = String(a.location || '');
+                                const lb = String(b.location || '');
+                                if (la.localeCompare(lb) < 0) recIdx = i;
+                            }
+                        }
+                        result['RecommendedIndex'] = recIdx;
+                        
+                        const locationParts = locationsWithQty.map((l, i) =>
+                            (i === recIdx ? '⭐ ' : '') + `${l.location} (${l.quantity})`
                         );
                         result['Location Display'] = locationParts.join(' | ');
                         
                         const totalAvailable = locationsWithQty.reduce((sum, l) => sum + l.quantity, 0);
                         result['Available Qty'] = totalAvailable;
-                        result['Stock Status'] = totalAvailable >= qty ? '✅ Enough' : '⚠️ Low Stock';
+                        result['Stock Status'] = totalAvailable >= qty ? STOCK.IN_STOCK : STOCK.LOW;
                         result['Total Available'] = totalAvailable;
                         
                         const anyPulled = locationsWithQty.some(l => l.quantity < l.originalQty);
@@ -1086,14 +1337,18 @@
             generateStats() {
                 if (!this.results || this.results.length === 0) return null;
                 const total = this.results.length;
-                const found = this.results.filter(r => r['Status'] === 'Found').length;
-                const lowStock = this.results.filter(r => r['Stock Status'] === '⚠️ Low Stock').length;
+                const found = this.results.filter(r => r['Status'] === MATCH.FOUND).length;
+                const ambiguous = this.results.filter(r => r['Status'] === MATCH.AMBIGUOUS).length;
+                const lowStock = this.results.filter(r =>
+                    r['Stock Status'] === STOCK.LOW || r['Stock Status'] === STOCK.OUT
+                ).length;
                 const multiple = this.results.filter(r => r['MultipleLocations'] === true).length;
                 const pulled = this.results.filter(r => r['IsPulled'] === true).length;
                 return { 
                     total, 
                     found, 
-                    notFound: total - found, 
+                    ambiguous,
+                    notFound: total - found - ambiguous, 
                     rate: total > 0 ? ((found/total)*100).toFixed(1) : 0, 
                     lowStock, 
                     multiple,
@@ -1115,9 +1370,6 @@
                 this.results = [];
                 this.inventoryLoaded = false;
                 this.pullSheetLoaded = false;
-                this.selectionMode = false;
-                this.selectedCard = null;
-                
                 this.initElements();
                 this.bindEvents();
                 this.loadDefaultInventory();
@@ -1146,6 +1398,7 @@
                 this.findBtn = document.getElementById('findBtn');
                 this.clearBtn = document.getElementById('clearBtn');
                 this.downloadBtn = document.getElementById('downloadBtn');
+                this.pullAllBtn = document.getElementById('pullAllBtn');
                 this.printBtn = document.getElementById('printBtn');
                 
                 this.resultsSection = document.getElementById('resultsSection');
@@ -1161,8 +1414,8 @@
                 this.pullLogCard = document.getElementById('pullLogCard');
                 this.pullLog = document.getElementById('pullLog');
                 this.pullLogCount = document.getElementById('pullLogCount');
-                this.selectionIndicator = document.getElementById('selectionIndicator');
-                this.cancelSelectionBtn = document.getElementById('cancelSelectionBtn');
+                this.pullLogSummary = document.getElementById('pullLogSummary');
+
                 this.downloadUpdatedInventoryBtn = document.getElementById('downloadUpdatedInventoryBtn');
                 this.undoAllPullsBtn = document.getElementById('undoAllPullsBtn');
             }
@@ -1202,8 +1455,9 @@
                 this.findBtn.addEventListener('click', () => this.findLocations());
                 this.clearBtn.addEventListener('click', () => this.clearAll());
                 this.downloadBtn.addEventListener('click', () => this.download());
-                this.printBtn.addEventListener('click', () => this.printPickingList());
-                this.cancelSelectionBtn.addEventListener('click', () => this.exitSelectionMode());
+                this.pullAllBtn.addEventListener('click', () => this.pullAll());
+                this.printBtn.addEventListener('click', () => { this.printPickingList(); });
+
                 this.downloadUpdatedInventoryBtn.addEventListener('click', () => this.downloadUpdatedInventory());
                 this.undoAllPullsBtn.addEventListener('click', () => {
                     if (confirm('Undo all pulls? This will restore all inventory quantities.')) {
@@ -1367,52 +1621,21 @@
                 this.findBtn.textContent = '🔍 Find Locations';
             }
             
-            enterSelectionMode(cardResult) {
-                this.selectionMode = true;
-                this.selectedCard = cardResult;
-                this.selectionIndicator.classList.add('active');
-                document.querySelectorAll('.location-badge').forEach(el => {
-                    el.style.cursor = 'pointer';
-                });
-                // Highlight the card row
-                document.querySelectorAll('tr').forEach(tr => {
-                    tr.style.background = 'transparent';
-                });
-                const rows = document.querySelectorAll('tr');
-                for (const row of rows) {
-                    if (row.dataset.cardId === String(cardResult['Search Query'] || cardResult['Pull Sheet Name'] || '')) {
-                        row.style.background = '#dbeafe';
-                        break;
-                    }
-                }
-            }
+
             
-            exitSelectionMode() {
-                this.selectionMode = false;
-                this.selectedCard = null;
-                this.selectionIndicator.classList.remove('active');
-                document.querySelectorAll('.location-badge').forEach(el => {
-                    el.style.cursor = 'default';
-                });
-                document.querySelectorAll('tr').forEach(tr => {
-                    tr.style.background = '';
-                });
-            }
-            
-            handlePull(cardResult, locationIndex, quantity) {
+            handlePull(cardResult, locationIndex, quantity, skipRender = false) {
                 const location = cardResult.Locations[locationIndex];
-                if (!location) return;
+                if (!location) return null;
                 
                 if (location.quantity <= 0) {
-                    alert('This location is depleted.');
-                    return;
+                    return null;
                 }
                 
                 const pullQty = Math.min(quantity, location.quantity, cardResult.Quantity || 1);
-                if (pullQty <= 0) return;
+                if (pullQty <= 0) return null;
                 
                 const entry = recordPull(
-                    cardResult['Clean Name'] || cardResult['Pull Sheet Name'] || cardResult['Search Query'] || '',
+                    cardResult['Pull Sheet Name'] || cardResult['Clean Name'] || cardResult['Search Query'] || '',
                     location.location,
                     pullQty,
                     location.itemRef,
@@ -1424,30 +1647,119 @@
                 
                 const totalAvailable = cardResult.Locations.reduce((sum, l) => sum + l.quantity, 0);
                 cardResult['Available Qty'] = totalAvailable;
-                cardResult['Stock Status'] = totalAvailable >= (cardResult.Quantity || 1) ? '✅ Enough' : '⚠️ Low Stock';
+                cardResult['Stock Status'] = totalAvailable >= (cardResult.Quantity || 1) ? STOCK.IN_STOCK : STOCK.LOW;
+                
+                this.updatePullLogUI();
+                
+                if (!skipRender) {
+                    this.render();
+                    this.quickLookupStatus.innerHTML = `<span style="color:#22c55e;">✅ Pulled ${pullQty}x ${cardResult['Pull Sheet Name'] || cardResult['Clean Name']} from ${location.location}</span>`;
+                    setTimeout(() => { this.quickLookupStatus.innerHTML = ''; }, 3000);
+                }
+                
+                return { pullQty, needed: cardResult.Quantity || 1, location: location.location };
+            }
+
+            // Pull every Found row from its recommended location, after confirming.
+            // Skips Ambiguous / Not Found. Partial fills are allowed and flagged.
+            pullAll() {
+                const planned = [];
+                for (const r of this.results) {
+                    if (r['Status'] !== MATCH.FOUND) continue;
+                    const recIdx = (typeof r['RecommendedIndex'] === 'number') ? r['RecommendedIndex'] : 0;
+                    const loc = r.Locations && r.Locations[recIdx];
+                    if (!loc || loc.quantity <= 0) continue;
+                    const needed = r['Quantity'] || 1;
+                    const qty = Math.min(needed, loc.quantity);
+                    if (qty <= 0) continue;
+                    planned.push({ row: r, recIdx, needed, qty, location: loc.location });
+                }
+                
+                if (planned.length === 0) {
+                    alert('No pullable (Found) cards to pull.');
+                    return;
+                }
+                
+                // Planned per-box breakdown
+                const byBox = {};
+                let totalUnits = 0;
+                for (const p of planned) {
+                    byBox[p.location] = (byBox[p.location] || 0) + p.qty;
+                    totalUnits += p.qty;
+                }
+                const boxLines = Object.keys(byBox).sort()
+                    .map(loc => `  ${loc}: ${byBox[loc]} units`).join('\n');
+                const shortCount = planned.filter(p => p.qty < p.needed).length;
+                
+                const msg = `Pull ${totalUnits} units across ${planned.length} cards`
+                    + (shortCount > 0 ? `\n(${shortCount} card(s) short of requested qty)` : '')
+                    + `\n\nBy box:\n${boxLines}\n\nProceed?`;
+                if (!confirm(msg)) return;
+                
+                let pulled = 0;
+                let shortfalls = 0;
+                for (const p of planned) {
+                    const res = this.handlePull(p.row, p.recIdx, p.qty, true);
+                    if (res) {
+                        pulled += res.pullQty;
+                        if (res.pullQty < res.needed) shortfalls++;
+                    }
+                }
                 
                 this.updatePullLogUI();
                 this.render();
-                this.exitSelectionMode();
                 
-                this.quickLookupStatus.innerHTML = `<span style="color:#22c55e;">✅ Pulled ${pullQty}x ${cardResult['Clean Name'] || cardResult['Pull Sheet Name']} from ${location.location}</span>`;
-                setTimeout(() => { this.quickLookupStatus.innerHTML = ''; }, 3000);
+                this.quickLookupStatus.innerHTML = `<span style="color:#22c55e;">✅ Pulled ${pulled} units across ${planned.length} cards`
+                    + (shortfalls > 0 ? ` (${shortfalls} short)` : '') + `</span>`;
+                setTimeout(() => { this.quickLookupStatus.innerHTML = ''; }, 4000);
             }
             
+            // Group the pull log by location: total units + distinct card count.
+            // Reused by the per-box summary and (later) the Pull All confirm dialog.
+            summarizePullLog() {
+                const byLocation = {};
+                for (const entry of pullLog) {
+                    const loc = entry.location || 'Unknown';
+                    if (!byLocation[loc]) {
+                        byLocation[loc] = { location: loc, units: 0, cards: new Set() };
+                    }
+                    byLocation[loc].units += entry.quantity;
+                    byLocation[loc].cards.add(entry.cardName || '');
+                }
+                return Object.values(byLocation).map(g => ({
+                    location: g.location,
+                    units: g.units,
+                    cardCount: g.cards.size
+                })).sort((a, b) => String(a.location).localeCompare(String(b.location)));
+            }
+
             updatePullLogUI() {
                 if (pullLog.length === 0) {
                     this.pullLogCard.style.display = 'none';
+                    this.pullLogSummary.innerHTML = '';
                     return;
                 }
                 
                 this.pullLogCard.style.display = 'block';
-                this.pullLogCount.textContent = `${pullLog.length} items pulled`;
+                const totalUnits = pullLog.reduce((sum, e) => sum + e.quantity, 0);
+                this.pullLogCount.textContent = `${totalUnits} units pulled`;
+                
+                // Per-box summary
+                const groups = this.summarizePullLog();
+                let sumHtml = '<div style="font-weight:600;margin-bottom:6px;">📦 Units per box</div>';
+                sumHtml += groups.map(g =>
+                    `<div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:2px 0;">` +
+                    `<span>${escapeHtml(g.location)}</span>` +
+                    `<span><strong>${g.units}</strong> units <span style="color:#6b7280;">(${g.cardCount} cards)</span></span>` +
+                    `</div>`
+                ).join('');
+                this.pullLogSummary.innerHTML = sumHtml;
                 
                 let html = '';
                 for (const entry of pullLog.slice().reverse()) {
                     html += `
                         <div class="log-entry">
-                            <span><span class="log-card">${entry.cardName}</span> → <span class="log-location">${entry.location}</span></span>
+                            <span><span class="log-card">${escapeHtml(entry.cardName)}</span> → <span class="log-location">${escapeHtml(entry.location)}</span></span>
                             <span class="log-qty">Qty: ${entry.quantity}</span>
                         </div>
                     `;
@@ -1489,8 +1801,10 @@
                         filtered = filtered.filter(r => r['Status'] === status);
                     }
                 }
-                if (qtyFilter === 'low') filtered = filtered.filter(r => r['Stock Status'] === '⚠️ Low Stock');
-                else if (qtyFilter === 'ok') filtered = filtered.filter(r => r['Stock Status'] === '✅ Enough');
+                if (qtyFilter === 'low') filtered = filtered.filter(r =>
+                    r['Stock Status'] === STOCK.LOW || r['Stock Status'] === STOCK.OUT
+                );
+                else if (qtyFilter === 'ok') filtered = filtered.filter(r => r['Stock Status'] === STOCK.IN_STOCK);
                 if (search) filtered = filtered.filter(r => 
                     String(r['Pull Sheet Name'] || r['Search Query'] || '').toLowerCase().includes(search) ||
                     String(r['Location Display']).toLowerCase().includes(search) ||
@@ -1536,60 +1850,81 @@
                     </tr></thead><tbody>`;
                 
                 for (const row of filtered) {
-                    const statusClass = row['IsPulled'] ? 'pulled-badge' : (row['Status'] === 'Found' ? 'found' : 'notfound');
-                    const statusText = row['IsPulled'] ? '📦 Pulled' : row['Status'];
+                    // Index of this row in the master results array. filtered holds
+                    // the same object references as this.results, so indexOf is exact.
+                    const resultIndex = this.results.indexOf(row);
+                    const isAmbiguous = row['Status'] === MATCH.AMBIGUOUS;
+                    const statusClass = row['IsPulled'] ? 'pulled-badge'
+                        : (row['Status'] === MATCH.FOUND ? 'found'
+                        : (isAmbiguous ? 'ambiguous' : 'notfound'));
+                    const statusText = row['IsPulled'] ? '📦 Pulled'
+                        : (isAmbiguous ? '❓ Ambiguous' : row['Status']);
                     
-                    const stockDisplay = row['Stock Status'] === '⚠️ Low Stock' ? 
+                    const stockDisplay = (row['Stock Status'] === STOCK.LOW || row['Stock Status'] === STOCK.OUT) ? 
                         `<span class="qty-warning">⚠️ ${row['Total Available'] || row['Available Qty']}/${row['Quantity'] || 1}</span>` : 
                         `<span class="qty-ok">✅ ${row['Total Available'] || row['Available Qty']}/${row['Quantity'] || 1}</span>`;
                     
                     const matchDisplay = row['Match Score'] > 0 ? `${row['Match Type']} (${row['Match Score']}%)` : 'No Match';
                     
+                    // rowId must be available before the location badges are built,
+                    // because the badge onclick references it. Derived from the same
+                    // fields that nameDisplay uses below.
+                    const rowId = isQuick
+                        ? (row['Search Query'] || row['Pull Sheet Name'] || '')
+                        : (row['Pull Sheet Name'] || row['Clean Name'] || '');
+
                     let locationDisplay = '';
-                    if (row['Status'] === 'Found' && row['Locations'] && row['Locations'].length > 0) {
+                    const canShowLocations = (row['Status'] === MATCH.FOUND || isAmbiguous) &&
+                                             row['Locations'] && row['Locations'].length > 0;
+                    if (canShowLocations) {
+                        const recommendedIdx = (typeof row['RecommendedIndex'] === 'number')
+                            ? row['RecommendedIndex'] : 0;
+                        const pullable = row['Status'] === MATCH.FOUND;
                         const locItems = row['Locations'].map((loc, idx) => {
                             const isDepleted = loc.quantity <= 0;
                             const qtyText = loc.quantity > 0 ? ` (${loc.quantity})` : ' (empty)';
-                            const condHint = loc.condition ? ` (${loc.condition})` : '';
-                            const badgeClass = isDepleted ? 'location-badge depleted' : 
-                                              (row['IsPulled'] && idx === 0 ? 'location-badge selected' : 'location-badge');
+                            const condHint = loc.condition ? ` (${escapeHtml(loc.condition)})` : '';
+                            const isRecommended = idx === recommendedIdx;
+                            const badgeClass = isDepleted ? 'location-badge depleted'
+                                              : (isRecommended ? 'location-badge selected' : 'location-badge');
                             
-                            const clickHandler = (loc.quantity > 0 && row['Status'] === 'Found') ? 
-                                `onclick="window.ui.handleLocationClick(${idx})"` : '';
+                            const clickHandler = (pullable && loc.quantity > 0)
+                                ? `onclick="window.ui.pullFromLocation(${resultIndex}, ${idx})"`
+                                : '';
                             
                             return `<div class="location-item">
-                                <span class="${badgeClass}" ${clickHandler} style="${loc.quantity > 0 && row['Status'] === 'Found' ? 'cursor:pointer;' : ''}">${loc.location}${qtyText}${condHint}</span>
-                                ${idx === 0 && !row['IsPulled'] ? '⭐' : ''}
-                                ${row['IsPulled'] && idx === 0 ? '📦' : ''}
+                                <span class="${badgeClass}" ${clickHandler} style="${pullable && loc.quantity > 0 ? 'cursor:pointer;' : ''}">${escapeHtml(loc.location)}${qtyText}${condHint}</span>
+                                ${isRecommended && !row['IsPulled'] ? '⭐' : ''}
+                                ${row['IsPulled'] && isRecommended ? '📦' : ''}
                             </div>`;
                         });
                         locationDisplay = `<div class="location-list">${locItems.join('')}</div>`;
                         if (row['Locations'].length > 1) {
                             locationDisplay += `<span class="multiple-locations">${row['Locations'].length} locations</span>`;
                         }
-                        
-                        if (row['Status'] === 'Found' && !row['IsPulled']) {
-                            const hasAvailable = row['Locations'].some(l => l.quantity > 0);
-                            if (hasAvailable && !this.selectionMode) {
-                                locationDisplay += `<button class="btn btn-warning btn-sm" style="margin-top:5px;font-size:12px;padding:3px 10px;" onclick="window.ui.enterSelectionMode(window.ui.results.find(r => r === row))">✋ Select Location</button>`;
-                            }
+                        if (isAmbiguous) {
+                            locationDisplay += `<div style="font-size:11px;color:#92400e;margin-top:4px;">❓ ${escapeHtml(row['StatusReason'] || 'Multiple printings matched')} -- add set/number to pull sheet</div>`;
                         }
                     } else {
                         locationDisplay = 'Not Found';
                     }
                     
-                    const nameDisplay = isQuick ? 
-                        (row['Search Query'] || row['Pull Sheet Name'] || '') : 
+                    const nameDisplay = isQuick ?
+                        (row['Search Query'] || row['Pull Sheet Name'] || '') :
                         (row['Pull Sheet Name'] || row['Clean Name'] || '');
                     
-                    const rowId = nameDisplay;
+                    // (rowId is declared above, before the location badges are built)
                     
-                    html += `<tr data-card-id="${rowId}" ${row['IsPulled'] ? 'class="pulled"' : ''}>
+                    const warnBadge = row['IdentityWarning'] 
+                        ? ` <span title="${escapeHtml(row['IdentityWarning'])}" style="color:#f59e0b;cursor:help;">⚠</span>` 
+                        : '';
+                    
+                    html += `<tr data-card-id="${escapeHtml(rowId)}" ${row['IsPulled'] ? 'class="pulled"' : ''}>
                         <td><span class="${statusClass}">${statusText}</span></td>
-                        <td style="font-size:13px;max-width:150px;word-break:break-all;">${nameDisplay}</td>
-                        <td>${row['Set'] || ''}</td>
-                        <td>${row['Number'] || ''}</td>
-                        <td>${row['Condition'] || ''}</td>
+                        <td style="font-size:13px;max-width:150px;word-break:break-all;">${escapeHtml(nameDisplay)}${warnBadge}</td>
+                        <td>${escapeHtml(row['Set'] || '')}</td>
+                        <td>${escapeHtml(row['Number'] || '')}</td>
+                        <td>${escapeHtml(row['Condition'] || '')}</td>
                         <td>${row['Quantity'] || 1}</td>
                         <td style="font-size:13px;max-width:250px;">${locationDisplay}</td>
                         <td style="font-size:11px;color:#6b7280;">${matchDisplay}</td>
@@ -1602,40 +1937,73 @@
                 this.tableContainer.innerHTML = html;
             }
             
-            handleLocationClick(index) {
-                if (!this.selectionMode || !this.selectedCard) return;
-                if (index >= this.selectedCard.Locations.length) return;
-                
-                const location = this.selectedCard.Locations[index];
-                if (location.quantity <= 0) return;
-                
-                const qty = Math.min(location.quantity, this.selectedCard.Quantity || 1);
-                
-                if (qty <= 0) {
+            // One-click pull. Finds the result row by its rowId (the same value
+            // used for data-card-id and the badge onclick), then pulls from the
+            // chosen location. Prompts for quantity only when it is genuinely
+            // ambiguous (more than one unit available AND more than one needed).
+            pullFromLocation(resultIndex, index) {
+                const cardResult = this.results[resultIndex];
+                if (!cardResult) return;
+                if (cardResult['Status'] !== MATCH.FOUND) {
+                    alert('This card was not matched exactly and cannot be pulled.');
+                    return;
+                }
+                if (!cardResult.Locations || index >= cardResult.Locations.length) return;
+
+                const location = cardResult.Locations[index];
+                if (location.quantity <= 0) {
                     alert('This location is depleted.');
                     return;
                 }
-                
-                if (location.quantity > 1 && (this.selectedCard.Quantity || 1) > 1) {
-                    const userQty = prompt(`How many to pull from ${location.location}? (Available: ${location.quantity}, Needed: ${this.selectedCard.Quantity || 1})`, 
-                        Math.min(location.quantity, this.selectedCard.Quantity || 1));
+
+                const needed = cardResult.Quantity || 1;
+                const qty = Math.min(location.quantity, needed);
+                if (qty <= 0) return;
+
+                if (location.quantity > 1 && needed > 1) {
+                    const userQty = prompt(
+                        `How many to pull from ${location.location}? (Available: ${location.quantity}, Needed: ${needed})`,
+                        qty
+                    );
                     if (userQty === null) return;
                     const pullQty = parseInt(userQty);
                     if (isNaN(pullQty) || pullQty <= 0) {
                         alert('Invalid quantity.');
                         return;
                     }
-                    this.handlePull(this.selectedCard, index, pullQty);
+                    this.handlePull(cardResult, index, pullQty);
                 } else {
-                    this.handlePull(this.selectedCard, index, qty);
+                    this.handlePull(cardResult, index, qty);
                 }
             }
+
+
             
-            printPickingList() {
+            async printPickingList() {
                 if (!this.results || this.results.length === 0) {
                     alert('No results to print.');
                     return;
                 }
+                
+                // Fetch color ranks for every distinct card in the results.
+                // Failure is non-fatal: ranks stays empty and the list prints unsorted.
+                let ranks = {};
+                try {
+                    // Look up every result row (Found, Pulled, Ambiguous, Not Found)
+                    // so all groups -- including the "NOT FOUND" shopping list --
+                    // can be ordered by color.
+                    const cards = this.results
+                        .map(r => ({ name: r['Pull Sheet Name'] || r['Clean Name'] || '', number: r['Number'] || '', set: r['Set'] || '' }));
+                    ranks = await fetchColorRanks(cards);
+                } catch (e) {
+                    console.warn('Color sort unavailable:', e.message);
+                    ranks = {};
+                }
+                const rankKey = (item) => normalizeKey(item['Set'] || '') + '|' + normalizeKey(item['Number'] || '');
+                const rankOf = (item) => {
+                    const entry = ranks[rankKey(item)];
+                    return entry ? entry.rank : 99;
+                };
                 
                 const foundItems = this.results.filter(r => r['Status'] === 'Found' && !r['IsPulled']);
                 const pulledItems = this.results.filter(r => r['IsPulled']);
@@ -1647,16 +2015,17 @@
                         for (const loc of item.Locations) {
                             if (loc.quantity > 0) {
                                 flattenedFound.push({
-                                    'Name': item['Clean Name'] || item['Pull Sheet Name'] || item['Search Query'] || '',
-                                    'Set': loc.set || item['Set'] || '',
+                                    'Name': item['Pull Sheet Name'] || item['Clean Name'] || item['Search Query'] || '',
+                                    'Set': item['Set'] || '',
                                     'Number': item['Number'] || '',
-                                    'Condition': loc.condition || item['Condition'] || '',
+                                    'Condition': item['Condition'] || '',
                                     'Quantity': item['Quantity'] || 1,
                                     'Location': loc.location || 'Unknown',
                                     'Available Qty': loc.quantity || 0,
-                                    'Stock Status': loc.quantity >= (item['Quantity'] || 1) ? '✅ Enough' : '⚠️ Low Stock',
+                                    'Stock Status': loc.quantity >= (item['Quantity'] || 1) ? STOCK.IN_STOCK : STOCK.LOW,
                                     'IsFound': true,
-                                    'IsPulled': false
+                                    'IsPulled': false,
+                                    'IdentityWarning': item['IdentityWarning'] || ''
                                 });
                             }
                         }
@@ -1670,17 +2039,18 @@
                             if (loc.quantity < loc.originalQty) {
                                 const pulledQty = loc.originalQty - loc.quantity;
                                 flattenedPulled.push({
-                                    'Name': item['Clean Name'] || item['Pull Sheet Name'] || item['Search Query'] || '',
-                                    'Set': loc.set || item['Set'] || '',
+                                    'Name': item['Pull Sheet Name'] || item['Clean Name'] || item['Search Query'] || '',
+                                    'Set': item['Set'] || '',
                                     'Number': item['Number'] || '',
-                                    'Condition': loc.condition || item['Condition'] || '',
+                                    'Condition': item['Condition'] || '',
                                     'Quantity': item['Quantity'] || 1,
                                     'Location': loc.location || 'Unknown',
                                     'Available Qty': loc.quantity || 0,
                                     'Stock Status': '📦 Pulled',
                                     'IsFound': true,
                                     'IsPulled': true,
-                                    'PulledQty': pulledQty
+                                    'PulledQty': pulledQty,
+                                    'IdentityWarning': item['IdentityWarning'] || ''
                                 });
                             }
                         }
@@ -1741,35 +2111,51 @@
                 for (const [location, items] of Object.entries(grouped).sort()) {
                     const isPulled = items.some(i => i.IsPulled);
                     const isNotFound = location === '❌ NOT FOUND';
+                    const safeLocation = escapeHtml(location);
+                    
+                    // Sort within the box by MTG color order (W U B R G multi colorless land),
+                    // falling back to name for ties or unknown cards. Applies to the
+                    // NOT FOUND group too, so the "cards to track down" list is color-ordered.
+                    items.sort((a, b) => {
+                        const ra = rankOf(a);
+                        const rb = rankOf(b);
+                        if (ra !== rb) return ra - rb;
+                        return String(a['Name'] || '').localeCompare(String(b['Name'] || ''));
+                    });
                     
                     if (isNotFound) {
-                        html += `<div class="print-box-header" style="border-left-color: #ef4444;">❌ ${location}</div>`;
+                        html += `<div class="print-box-header" style="border-left-color: #ef4444;">❌ ${safeLocation}</div>`;
                     } else if (isPulled) {
-                        html += `<div class="print-box-header" style="border-left-color: #f59e0b;">📦 ${location} (Pulled)</div>`;
+                        html += `<div class="print-box-header" style="border-left-color: #f59e0b;">📦 ${safeLocation} (Pulled)</div>`;
                     } else {
-                        html += `<div class="print-box-header">📦 ${location}</div>`;
+                        html += `<div class="print-box-header">📦 ${safeLocation}</div>`;
                     }
                     
                     for (const item of items) {
                         totalPicks++;
                         const stockStatus = item['IsPulled'] ? 
                             `<span style="color: #f59e0b;">📦 Pulled ${item['PulledQty'] || 1}</span>` :
-                            (item['Stock Status'] === '⚠️ Low Stock' ? 
+                            (item['Stock Status'] === STOCK.LOW || item['Stock Status'] === STOCK.OUT ?
                                 `<span style="color: #f59e0b;">⚠️ Only ${item['Available Qty']} available</span>` : 
                                 `<span style="color: #22c55e;">✅ ${item['Available Qty']} in stock</span>`);
                         
                         const details = [];
-                        if (item['Set']) details.push(item['Set']);
-                        if (item['Number']) details.push(`#${item['Number']}`);
-                        if (item['Condition']) details.push(item['Condition']);
+                        if (item['Set']) details.push(escapeHtml(item['Set']));
+                        if (item['Number']) details.push(`#${escapeHtml(item['Number'])}`);
+                        if (item['Condition']) details.push(escapeHtml(item['Condition']));
                         const detailStr = details.length > 0 ? `• ${details.join(' • ')}` : '';
+                        
+                        const warnNote = item['IdentityWarning']
+                            ? `<div style="font-size:11px;color:#b45309;margin-top:2px;">⚠ ${escapeHtml(item['IdentityWarning'])}</div>`
+                            : '';
                         
                         html += `
                             <div class="print-picking-item" style="${item['IsPulled'] ? 'border-left: 3px solid #f59e0b; background: #fffbeb;' : ''}">
                                 <div>
                                     <span style="font-weight:600;margin-right:10px;">${totalPicks}.</span>
-                                    <span class="card-name">${item['Name']}</span>
+                                    <span class="card-name">${escapeHtml(item['Name'])}</span>
                                     <span class="card-details">${detailStr}</span>
+                                    ${warnNote}
                                     ${item['IsPulled'] ? '<span style="color: #f59e0b; margin-left:10px; font-weight:600;">📦 PULLED</span>' : ''}
                                 </div>
                                 <div style="display:flex;align-items:center;gap:15px;">
@@ -1823,8 +2209,6 @@
                 this.pullSheetFile = null;
                 this.results = [];
                 this.pullSheetLoaded = false;
-                this.selectionMode = false;
-                this.selectedCard = null;
                 
                 this.pullSheetInput.value = '';
                 this.pullSheetFileName.textContent = 'Drop Pull Sheet CSV here';
@@ -1846,7 +2230,6 @@
                 this.searchBox.value = '';
                 this.statusFilter.value = 'all';
                 this.qtyFilter.value = 'all';
-                this.selectionIndicator.classList.remove('active');
                 
                 this.engine.pullSheet = [];
                 this.engine.filteredPullSheet = [];
