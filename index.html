@@ -373,13 +373,20 @@
 </head>
 <body>
     <div class="container">
-        <div class="header no-print">
+        <div class="header no-print" id="setupHeader">
             <h1>🔍 Card Location Lookup</h1>
             <p>Find and pull cards from inventory</p>
         </div>
         
         <!-- Main Content -->
         <div id="mainContent">
+            <div id="setupSummary" class="card no-print" style="display:none;padding:12px 20px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                    <span id="setupSummaryText" style="font-size:14px;color:#374151;">Ready.</span>
+                    <button class="btn btn-secondary btn-sm" id="expandSetupBtn" style="padding:6px 16px;">⚙️ Show setup</button>
+                </div>
+            </div>
+            <div id="setupPanel">
             <div class="card no-print">
                 <!-- Status Bar -->
                 <div class="status-bar" id="statusBar">
@@ -440,6 +447,8 @@
                     <p>Looking up locations...</p>
                 </div>
             </div>
+            </div>
+            <!-- /setupPanel -->
             
             <div id="resultsSection" class="hidden">
                 <div class="results-stats no-print" id="statsRow"></div>
@@ -457,6 +466,7 @@
                     <div class="pulled-log" id="pullLog"></div>
                     <div class="action-buttons">
                         <button class="btn btn-success btn-sm" id="downloadUpdatedInventoryBtn">📥 Download Updated Inventory</button>
+                        <button class="btn btn-danger btn-sm" id="commitToInventoryBtn">💾 Commit to inventory.csv</button>
                         <button class="btn btn-warning btn-sm" id="undoAllPullsBtn">↩️ Undo All Pulls</button>
                     </div>
                 </div>
@@ -478,6 +488,7 @@
                         <button class="btn btn-success" id="downloadBtn">📊 Excel</button>
                         <button class="btn btn-warning" id="pullAllBtn">📦 Pull All</button>
                         <button class="btn btn-print" id="printBtn">🖨️ Print</button>
+                        <span id="colorProgress" style="font-size:12px;color:#6b7280;margin-left:6px;"></span>
                     </div>
                     
                     <div class="table-wrap" id="tableContainer"></div>
@@ -611,7 +622,11 @@
         // search endpoint with an exact name + collector number, which uniquely
         // identifies a printing without relying on set-name matching (TCGPlayer
         // set names and Scryfall set names frequently differ). Cached forever.
+        // Optional progress hook: set to a (done, total) => {} function before calling.
+        let colorFetchProgress = null;
+
         async function fetchColorRanks(cards) {
+            const onProgress = colorFetchProgress;
             const cache = loadColorCache();
             const result = {};
             const need = [];
@@ -627,36 +642,140 @@
 
             if (need.length === 0) return result;
 
-            for (const n of need) {
-                if (!n.name || !n.number) continue;
-                try {
-                    const cleanName = stripNameSuffix(n.name) || n.name;
-                    const q = encodeURIComponent('!"' + cleanName + '" number:' + String(n.number).trim());
-                    const resp = await fetch('https://api.scryfall.com/cards/search?q=' + q, {
-                        headers: { 'Accept': 'application/json' }
-                    });
-                    if (resp.status === 200) {
-                        const data = await resp.json();
-                        if (data.total_cards === 1 && data.data && data.data[0]) {
-                            const sc = data.data[0];
-                            const entry = {
-                                rank: colorRankFromScryfall(sc),
-                                colors: sc.color_identity || [],
-                                name: sc.name || ''
-                            };
-                            cache[n.key] = entry;
-                            result[n.key] = entry;
+            const queue = need.filter(n => n.name && n.number);
+            const total = queue.length;
+            let done = 0;
+            const CONCURRENCY = 6;
+
+            const worker = async () => {
+                while (queue.length > 0) {
+                    const n = queue.shift();
+                    if (!n) break;
+                    try {
+                        const cleanName = stripNameSuffix(n.name) || n.name;
+                        const q = encodeURIComponent('!"' + cleanName + '" number:' + String(n.number).trim());
+                        const resp = await fetch('https://api.scryfall.com/cards/search?q=' + q, {
+                            headers: { 'Accept': 'application/json' }
+                        });
+                        if (resp.status === 200) {
+                            const data = await resp.json();
+                            if (data.total_cards === 1 && data.data && data.data[0]) {
+                                const sc = data.data[0];
+                                const entry = {
+                                    rank: colorRankFromScryfall(sc),
+                                    colors: sc.color_identity || [],
+                                    name: sc.name || ''
+                                };
+                                cache[n.key] = entry;
+                                result[n.key] = entry;
+                            }
                         }
+                    } catch (e) {
+                        console.warn('Scryfall lookup failed for ' + n.name + ' #' + n.number + ':', e.message);
                     }
-                } catch (e) {
-                    console.warn('Scryfall lookup failed for ' + n.name + ' #' + n.number + ':', e.message);
+                    done++;
+                    if (typeof onProgress === 'function') onProgress(done, total);
                 }
-                // Gentle pacing to respect Scryfall's rate guidance.
-                await new Promise(res => setTimeout(res, 100));
+            };
+
+            const workers = [];
+            for (let i = 0; i < Math.min(CONCURRENCY, queue.length); i++) {
+                workers.push(worker());
             }
+            await Promise.all(workers);
 
             saveColorCache(cache);
             return result;
+        }
+
+        // ============================================================
+        // IN-PLACE CSV MUTATION
+        // Applies pull deductions to the RAW csv text, preserving every
+        // other byte (headers, column order, blank cells, CRLF line endings).
+        // Rows whose stock reaches 0 are removed entirely.
+        //
+        // modifications: { "rowId": { totalPulled } } keyed by rowId, plus a
+        // parallel map of rowId -> {setName, productName, number, condition, location}
+        // is not needed here: we mutate by matching the ORIGINAL row order, using
+        // the WeakMap identity captured at parse time.
+        // ============================================================
+
+        // Split a CSV line into cells, respecting double quotes.
+        function splitCsvLine(line) {
+            const cells = [];
+            let cur = '';
+            let inQuotes = false;
+            for (let i = 0; i < line.length; i++) {
+                const ch = line[i];
+                if (ch === '"') {
+                    inQuotes = !inQuotes;
+                    cur += ch;
+                } else if (ch === ',' && !inQuotes) {
+                    cells.push(cur);
+                    cur = '';
+                } else {
+                    cur += ch;
+                }
+            }
+            cells.push(cur);
+            return cells;
+        }
+
+        // Apply pull modifications to raw CSV text, returning new CSV text.
+        // inventory: the parsed rows (same references used to build rowIds).
+        // modifications: { rowId: { totalPulled } }
+        // Returns { csv, removed, changed }.
+        function applyPullsToCsv(csvText, inventory, modifications) {
+            const newline = csvText.indexOf('\r\n') >= 0 ? '\r\n' : '\n';
+            const lines = csvText.split(/\r?\n/);
+
+            // Locate the Add to Quantity column index from the header.
+            const headerCells = splitCsvLine(lines[0] || '');
+            let qtyCol = headerCells.findIndex(h => h.trim() === 'Add to Quantity');
+            if (qtyCol < 0) qtyCol = headerCells.findIndex(h => h.trim() === 'Stock Qty');
+            if (qtyCol < 0) qtyCol = headerCells.findIndex(h => /quantity/i.test(h));
+            if (qtyCol < 0) {
+                return { csv: csvText, removed: 0, changed: 0, error: 'No quantity column found' };
+            }
+
+            // Build a map of rowId -> totalPulled for quick lookup.
+            const modByRowId = {};
+            for (const [id, mod] of Object.entries(modifications)) {
+                modByRowId[id] = mod.totalPulled || 0;
+            }
+
+            const outLines = [lines[0]]; // keep header verbatim
+            let removed = 0;
+            let changed = 0;
+
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i];
+                if (line === '') { continue; } // drop trailing blank
+                const row = inventory[i - 1];
+                const rowId = row ? getRowId(row) : null;
+                const pulled = rowId ? (modByRowId[rowId] || 0) : 0;
+
+                if (pulled <= 0) {
+                    outLines.push(line);
+                    continue;
+                }
+
+                const cells = splitCsvLine(line);
+                const cur = parseInt(String(cells[qtyCol] || '').replace(/"/g, '').trim());
+                const currentQty = isNaN(cur) ? 0 : cur;
+                const newQty = Math.max(0, currentQty - pulled);
+
+                if (newQty <= 0) {
+                    removed++;
+                    continue; // delete the row entirely
+                }
+
+                cells[qtyCol] = String(newQty);
+                outLines.push(cells.join(','));
+                changed++;
+            }
+
+            return { csv: outLines.join(newline), removed, changed };
         }
 
         // Read the authoritative stock quantity from a row.
@@ -1417,6 +1536,7 @@
                 this.pullLogSummary = document.getElementById('pullLogSummary');
 
                 this.downloadUpdatedInventoryBtn = document.getElementById('downloadUpdatedInventoryBtn');
+                this.commitToInventoryBtn = document.getElementById('commitToInventoryBtn');
                 this.undoAllPullsBtn = document.getElementById('undoAllPullsBtn');
             }
             
@@ -1459,6 +1579,9 @@
                 this.printBtn.addEventListener('click', () => { this.printPickingList(); });
 
                 this.downloadUpdatedInventoryBtn.addEventListener('click', () => this.downloadUpdatedInventory());
+                this.commitToInventoryBtn.addEventListener('click', () => this.commitToInventory());
+                const expandBtn = document.getElementById('expandSetupBtn');
+                if (expandBtn) expandBtn.addEventListener('click', () => this.expandSetup());
                 this.undoAllPullsBtn.addEventListener('click', () => {
                     if (confirm('Undo all pulls? This will restore all inventory quantities.')) {
                         undoAllPulls();
@@ -1612,6 +1735,8 @@
                     this.render();
                     this.resultsSection.classList.remove('hidden');
                     this.updatePullLogUI();
+                    this.warmColors();
+                    this.collapseSetup();
                 } catch (err) {
                     alert('Error: ' + err.message);
                 }
@@ -1619,6 +1744,63 @@
                 this.loading.style.display = 'none';
                 this.findBtn.disabled = false;
                 this.findBtn.textContent = '🔍 Find Locations';
+            }
+
+            // Collapse the setup area into a one-line summary after a lookup,
+            // so the results are what you see. Expandable via "Show setup".
+            collapseSetup() {
+                const panel = document.getElementById('setupPanel');
+                const header = document.getElementById('setupHeader');
+                const summary = document.getElementById('setupSummary');
+                const text = document.getElementById('setupSummaryText');
+                if (!panel || !summary) return;
+
+                const invRows = this.engine.inventory ? this.engine.inventory.length : 0;
+                const psCount = this.engine.filteredCount || 0;
+                const parts = [invRows + ' inventory rows'];
+                if (psCount > 0) parts.push(psCount + ' pull-sheet cards');
+                if (text) text.textContent = '✅ ' + parts.join(' · ');
+
+                panel.style.display = 'none';
+                if (header) header.style.display = 'none';
+                summary.style.display = 'block';
+                if (this.resultsSection && this.resultsSection.scrollIntoView) {
+                    this.resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }
+
+            expandSetup() {
+                const panel = document.getElementById('setupPanel');
+                const header = document.getElementById('setupHeader');
+                const summary = document.getElementById('setupSummary');
+                if (panel) panel.style.display = '';
+                if (header) header.style.display = '';
+                if (summary) summary.style.display = 'none';
+            }
+
+            // Kick off color lookups in the background so Print is fast later.
+            // Not awaited: the UI is fully usable while this runs.
+            warmColors() {
+                const cards = (this.results || [])
+                    .map(r => ({ name: r['Pull Sheet Name'] || r['Clean Name'] || '', number: r['Number'] || '', set: r['Set'] || '' }))
+                    .filter(c => c.name && c.number);
+                if (cards.length === 0) return;
+
+                const el = document.getElementById('colorProgress');
+                let colorFetchProgressRef = (done, total) => {
+                    if (el) el.textContent = 'Fetching colors... ' + done + '/' + total;
+                };
+                colorFetchProgress = colorFetchProgressRef;
+
+                fetchColorRanks(cards)
+                    .then(() => {
+                        if (el) el.textContent = '✅ Colors ready';
+                        colorFetchProgress = null;
+                    })
+                    .catch((e) => {
+                        if (el) el.textContent = '⚠️ Color fetch failed';
+                        colorFetchProgress = null;
+                    });
             }
             
 
@@ -1658,6 +1840,164 @@
                 }
                 
                 return { pullQty, needed: cardResult.Quantity || 1, location: location.location };
+            }
+
+            // Remove a single pull-log entry and reverse its effects:
+            // restore the location quantity, drop it from inventoryModifications,
+            // and recompute the card's aggregate state.
+            unpullEntry(entryId) {
+                const idx = pullLog.findIndex(e => String(e.id) === String(entryId));
+                if (idx < 0) return false;
+                const entry = pullLog[idx];
+
+                // Remove from the log.
+                pullLog.splice(idx, 1);
+
+                // Remove from inventoryModifications and recompute newQty.
+                const rowId = getRowId(entry.pulledFrom);
+                if (rowId && inventoryModifications[rowId]) {
+                    const mod = inventoryModifications[rowId];
+                    const pIdx = mod.pulled.findIndex(p => String(p.id) === String(entry.id));
+                    if (pIdx >= 0) mod.pulled.splice(pIdx, 1);
+                    const total = mod.pulled.reduce((s, p) => s + p.quantity, 0);
+                    mod.newQty = Math.max(0, mod.originalQty - total);
+                    if (mod.pulled.length === 0) delete inventoryModifications[rowId];
+                }
+
+                // Restore the location quantity on the result row, if we can find it.
+                const cardResult = this.results.find(r => (r.Locations || []).some(l => l.itemRef === entry.pulledFrom));
+                if (cardResult) {
+                    const loc = cardResult.Locations.find(l => l.itemRef === entry.pulledFrom);
+                    if (loc) loc.quantity += entry.quantity;
+                    this.recomputeCardState(cardResult);
+                }
+
+                return true;
+            }
+
+            // Recompute aggregate fields on a result row after a pull change.
+            recomputeCardState(cardResult) {
+                const anyPulled = (cardResult.Locations || []).some(l => l.quantity < l.originalQty);
+                cardResult['IsPulled'] = anyPulled;
+                const totalAvailable = (cardResult.Locations || []).reduce((s, l) => s + l.quantity, 0);
+                cardResult['Available Qty'] = totalAvailable;
+                cardResult['Stock Status'] = totalAvailable >= (cardResult.Quantity || 1) ? STOCK.IN_STOCK : STOCK.LOW;
+            }
+
+            // Remove one specific pull-log entry (the per-line X button).
+            removePullEntry(entryId) {
+                // TEMP DIAGNOSTIC: snapshot what we're about to do.
+                try {
+                    const idx = pullLog.findIndex(e => String(e.id) === String(entryId));
+                    const entry = idx >= 0 ? pullLog[idx] : null;
+                    let diag = { entryId, found: idx >= 0 };
+                    if (entry) {
+                        diag.entry = { id: entry.id, cardName: entry.cardName, location: entry.location, quantity: entry.quantity };
+                        diag.rowId = getRowId(entry.pulledFrom) || null;
+                        diag.pulledFromMatchesInResults = (this.results || []).filter(r =>
+                            (r.Locations || []).some(l => l.itemRef === entry.pulledFrom)
+                        ).length;
+                        diag.resultsCount = (this.results || []).length;
+                        diag.inventoryModExists = diag.rowId ? !!inventoryModifications[diag.rowId] : false;
+                    }
+                    window.__lastRemoveDiag = diag;
+                    console.log('REMOVE DIAG', diag);
+                } catch (e) {
+                    window.__lastRemoveDiag = { error: String(e) };
+                }
+
+                if (this.unpullEntry(entryId)) {
+                    this.render();
+                }
+            }
+
+            // Stepper handler. delta is +1 or -1.
+            // Rule: the FIRST + on an untouched location jumps straight to the
+            // full needed quantity (capped at stock); later + adds 1. - subtracts 1.
+            bumpPullQuantity(resultIndex, locIndex, delta) {
+                const card = this.results[resultIndex];
+                if (!card || !card.Locations) return;
+                const loc = card.Locations[locIndex];
+                if (!loc) return;
+
+                const pulledHere = (loc.originalQty || 0) - loc.quantity;
+                let target;
+                if (delta > 0) {
+                    if (pulledHere === 0) {
+                        const needed = card.Quantity || 1;
+                        target = Math.min(needed, loc.quantity);
+                        if (target <= 0) return;
+                    } else {
+                        target = pulledHere + 1;
+                        if (target > loc.quantity + pulledHere) target = loc.quantity + pulledHere; // can't exceed stock
+                    }
+                } else {
+                    target = Math.max(0, pulledHere - 1);
+                }
+
+                this.setPullQuantity(card, locIndex, target);
+                this.render();
+            }
+
+            // Set the total pulled quantity from a specific location to exactly qty.
+            // qty 0 removes any pulls from that location. Used by the +/- steppers.
+            setPullQuantity(cardResult, locIndex, qty) {
+                const loc = cardResult.Locations && cardResult.Locations[locIndex];
+                if (!loc) return false;
+                qty = Math.max(0, parseInt(qty) || 0);
+
+                // Current total pulled from this exact location for this card.
+                const current = pullLog
+                    .filter(e => e.pulledFrom === loc.itemRef)
+                    .reduce((s, e) => s + e.quantity, 0);
+
+                if (qty === current) return true;
+
+                if (qty < current) {
+                    // Remove pulls until we've taken back (current - qty) units.
+                    let toRemove = current - qty;
+                    // Walk newest-first so the stepper feels like it undoes the last +.
+                    for (let i = pullLog.length - 1; i >= 0 && toRemove > 0; i--) {
+                        const e = pullLog[i];
+                        if (e.pulledFrom !== loc.itemRef) continue;
+                        if (e.quantity <= toRemove) {
+                            toRemove -= e.quantity;
+                            this.unpullEntry(e.id);
+                        } else {
+                            // Partial: shrink this entry.
+                            const shrink = toRemove;
+                            e.quantity -= shrink;
+                            e.newQty += shrink;
+                            loc.quantity += shrink;
+                            const rowId = getRowId(e.pulledFrom);
+                            if (rowId && inventoryModifications[rowId]) {
+                                const mod = inventoryModifications[rowId];
+                                const total = mod.pulled.reduce((s, p) => s + p.quantity, 0);
+                                mod.newQty = Math.max(0, mod.originalQty - total);
+                            }
+                            toRemove = 0;
+                        }
+                    }
+                } else {
+                    // Add (qty - current) units from this location.
+                    let toAdd = qty - current;
+                    const available = loc.quantity;
+                    const add = Math.min(toAdd, available);
+                    if (add <= 0) return false;
+
+                    const entry = recordPull(
+                        cardResult['Pull Sheet Name'] || cardResult['Clean Name'] || cardResult['Search Query'] || '',
+                        loc.location,
+                        add,
+                        loc.itemRef,
+                        loc.originalQty || loc.quantity
+                    );
+                    loc.quantity -= add;
+                }
+
+                this.recomputeCardState(cardResult);
+                this.updatePullLogUI();
+                return true;
             }
 
             // Pull every Found row from its recommended location, after confirming.
@@ -1760,7 +2100,10 @@
                     html += `
                         <div class="log-entry">
                             <span><span class="log-card">${escapeHtml(entry.cardName)}</span> → <span class="log-location">${escapeHtml(entry.location)}</span></span>
-                            <span class="log-qty">Qty: ${entry.quantity}</span>
+                            <span style="display:flex;align-items:center;gap:8px;">
+                                <span class="log-qty">Qty: ${entry.quantity}</span>
+                                <button class="btn btn-danger btn-sm" title="Undo this pull" style="padding:0 8px;font-size:13px;line-height:1.4;" onclick="window.ui.removePullEntry(${entry.id})">✕</button>
+                            </span>
                         </div>
                     `;
                 }
@@ -1785,6 +2128,90 @@
                 alert(`✅ Updated inventory downloaded! ${pullLog.length} items were deducted.`);
             }
             
+            // Apply all pulls to the raw inventory CSV and write it back.
+            // Uses the File System Access API when available (in-place save),
+            // otherwise falls back to a download named inventory.csv.
+            async commitToInventory() {
+                if (pullLog.length === 0) {
+                    alert('No pulls have been made yet.');
+                    return;
+                }
+                if (!this.engine.inventory || this.engine.inventory.length === 0) {
+                    alert('No inventory loaded.');
+                    return;
+                }
+                if (this.inventoryFile !== DEFAULT_INVENTORY_FILE) {
+                    alert('Inventory was loaded from an uploaded file, not ' + DEFAULT_INVENTORY_FILE + '. Use "Download Updated Inventory" instead.');
+                    return;
+                }
+
+                const mods = {};
+                for (const [rowId, mod] of Object.entries(inventoryModifications)) {
+                    mods[rowId] = { totalPulled: mod.pulled.reduce((s, p) => s + p.quantity, 0) };
+                }
+
+                let rawCsv;
+                try {
+                    const resp = await fetch(DEFAULT_INVENTORY_FILE + '?t=' + Date.now());
+                    if (!resp.ok) throw new Error('fetch failed: ' + resp.status);
+                    rawCsv = await resp.text();
+                } catch (e) {
+                    alert('Could not read ' + DEFAULT_INVENTORY_FILE + ' to patch it: ' + e.message + ' Use "Download Updated Inventory" instead.');
+                    return;
+                }
+
+                const result = applyPullsToCsv(rawCsv, this.engine.inventory, mods);
+                if (result.error) {
+                    alert('Could not build updated inventory: ' + result.error);
+                    return;
+                }
+
+                const proceed = confirm(
+                    'Commit pulls to ' + DEFAULT_INVENTORY_FILE + '?\n\n'
+                    + '  Rows reduced: ' + result.changed + '\n'
+                    + '  Rows removed (now empty): ' + result.removed + '\n\n'
+                    + 'This MODIFIES the file on disk. Undo is not available after commit.'
+                );
+                if (!proceed) return;
+
+                let wroteInPlace = false;
+                if (window.showSaveFilePicker) {
+                    try {
+                        const handle = await window.showSaveFilePicker({
+                            suggestedName: DEFAULT_INVENTORY_FILE,
+                            types: [{ description: 'CSV', accept: { 'text/csv': ['.csv'] } }]
+                        });
+                        const writable = await handle.createWritable();
+                        await writable.write(result.csv);
+                        await writable.close();
+                        wroteInPlace = true;
+                    } catch (e) {
+                        if (e.name === 'AbortError') return;
+                        console.warn('File System Access write failed, falling back:', e.message);
+                    }
+                }
+
+                if (!wroteInPlace) {
+                    const blob = new Blob([result.csv], { type: 'text/csv' });
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = DEFAULT_INVENTORY_FILE;
+                    link.click();
+                }
+
+                undoAllPulls();
+                this.updatePullLogUI();
+                this.results = [];
+                await this.engine.loadInventoryFromCSV(result.csv, DEFAULT_INVENTORY_FILE);
+                this.engine.inventory.forEach(assignRowId);
+                this.resultsSection.classList.add('hidden');
+                this.tableContainer.innerHTML = '';
+                this.statsRow.innerHTML = '';
+
+                alert('Committed. ' + result.changed + ' row(s) reduced, ' + result.removed + ' removed.'
+                    + (wroteInPlace ? '' : ' (Saved as a download -- replace ' + DEFAULT_INVENTORY_FILE + ' in the app folder.)'));
+            }
+
             render() {
                 if (!this.results || this.results.length === 0) return;
                 
@@ -1882,20 +2309,33 @@
                         const pullable = row['Status'] === MATCH.FOUND;
                         const locItems = row['Locations'].map((loc, idx) => {
                             const isDepleted = loc.quantity <= 0;
-                            const qtyText = loc.quantity > 0 ? ` (${loc.quantity})` : ' (empty)';
+                            const qtyText = loc.quantity > 0 ? ` (${loc.quantity} left)` : ' (empty)';
                             const condHint = loc.condition ? ` (${escapeHtml(loc.condition)})` : '';
                             const isRecommended = idx === recommendedIdx;
-                            const badgeClass = isDepleted ? 'location-badge depleted'
+                            // How many are currently being pulled from THIS location.
+                            const pulledHere = (loc.originalQty || 0) - loc.quantity;
+                            const badgeClass = isDepleted && pulledHere <= 0 ? 'location-badge depleted'
                                               : (isRecommended ? 'location-badge selected' : 'location-badge');
-                            
-                            const clickHandler = (pullable && loc.quantity > 0)
-                                ? `onclick="window.ui.pullFromLocation(${resultIndex}, ${idx})"`
-                                : '';
-                            
-                            return `<div class="location-item">
-                                <span class="${badgeClass}" ${clickHandler} style="${pullable && loc.quantity > 0 ? 'cursor:pointer;' : ''}">${escapeHtml(loc.location)}${qtyText}${condHint}</span>
+
+                            let controls = '';
+                            if (pullable) {
+                                const canMinus = pulledHere > 0;
+                                const canPlus = loc.quantity > 0;
+                                controls =
+                                    `<span style="display:inline-flex;align-items:center;gap:4px;margin-left:6px;">` +
+                                    `<button class="btn btn-secondary btn-sm" style="padding:1px 8px;font-size:14px;line-height:1;" ` +
+                                    `${canMinus ? `onclick="window.ui.bumpPullQuantity(${resultIndex}, ${idx}, -1)"` : 'disabled'}>−</button>` +
+                                    `<span style="min-width:18px;text-align:center;font-weight:600;">${pulledHere}</span>` +
+                                    `<button class="btn btn-success btn-sm" style="padding:1px 8px;font-size:14px;line-height:1;" ` +
+                                    `${canPlus ? `onclick="window.ui.bumpPullQuantity(${resultIndex}, ${idx}, 1)"` : 'disabled'}>+</button>` +
+                                    `</span>`;
+                            }
+
+                            return `<div class="location-item" style="margin-bottom:4px;">
+                                <span class="${badgeClass}">${escapeHtml(loc.location)}${qtyText}${condHint}</span>
                                 ${isRecommended && !row['IsPulled'] ? '⭐' : ''}
-                                ${row['IsPulled'] && isRecommended ? '📦' : ''}
+                                ${row['IsPulled'] && pulledHere > 0 ? '📦' : ''}
+                                ${controls}
                             </div>`;
                         });
                         locationDisplay = `<div class="location-list">${locItems.join('')}</div>`;
