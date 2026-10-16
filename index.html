@@ -592,6 +592,19 @@
         // Strip trailing parenthetical treatment labels that TCGPlayer adds to
         // product names but Scryfall does not use, e.g. "Preordain (White Border)"
         // -> "Preordain". The collector number still disambiguates the printing.
+        // Normalize a collector number for Scryfall: strip a trailing "/total",
+        // leading zeros are fine, but slashes break the exact-number query.
+        // e.g. "076/303" -> "76", "243/302" -> "243".
+        function normalizeCollectorNumber(num) {
+            if (num === null || num === undefined) return '';
+            let n = String(num).trim();
+            const slash = n.indexOf('/');
+            if (slash >= 0) n = n.slice(0, slash).trim();
+            // Scryfall accepts leading zeros, but a bare "076" is safest reduced.
+            if (/^0+[0-9]+$/.test(n)) n = String(parseInt(n, 10));
+            return n;
+        }
+
         function stripNameSuffix(name) {
             if (!name) return '';
             let n = String(name).trim();
@@ -653,7 +666,8 @@
                     if (!n) break;
                     try {
                         const cleanName = stripNameSuffix(n.name) || n.name;
-                        const q = encodeURIComponent('!"' + cleanName + '" number:' + String(n.number).trim());
+                        const cleanNum = normalizeCollectorNumber(n.number);
+                        const q = encodeURIComponent('!"' + cleanName + '" number:' + cleanNum);
                         const resp = await fetch('https://api.scryfall.com/cards/search?q=' + q, {
                             headers: { 'Accept': 'application/json' }
                         });
@@ -817,6 +831,11 @@
         let pullLog = [];
         let inventoryModifications = {};
 
+        // Monotonic integer id for pull-log entries. Integers survive the
+        // round-trip through an inline onclick attribute exactly; floats do not.
+        let nextPullId = 1;
+        // (integer ids verified)
+
         // Stable identity for inventory rows, keyed by object reference.
         // Kept OUT of the row object so it never leaks into CSV/XLSX exports.
         const rowIds = new WeakMap();
@@ -837,7 +856,7 @@
             const rowId = assignRowId(pulledFrom) || 'unknown';
 
             const entry = {
-                id: Date.now() + Math.random() * 1000,
+                id: nextPullId++,
                 timestamp: new Date().toLocaleString(),
                 cardName: cardName,
                 location: location,
@@ -1872,6 +1891,10 @@
                     this.recomputeCardState(cardResult);
                 }
 
+                // Always refresh the log panel, regardless of whether render()
+                // would early-return (e.g. empty results).
+                this.updatePullLogUI();
+
                 return true;
             }
 
@@ -1885,28 +1908,19 @@
             }
 
             // Remove one specific pull-log entry (the per-line X button).
-            removePullEntry(entryId) {
-                // TEMP DIAGNOSTIC: snapshot what we're about to do.
-                try {
-                    const idx = pullLog.findIndex(e => String(e.id) === String(entryId));
-                    const entry = idx >= 0 ? pullLog[idx] : null;
-                    let diag = { entryId, found: idx >= 0 };
-                    if (entry) {
-                        diag.entry = { id: entry.id, cardName: entry.cardName, location: entry.location, quantity: entry.quantity };
-                        diag.rowId = getRowId(entry.pulledFrom) || null;
-                        diag.pulledFromMatchesInResults = (this.results || []).filter(r =>
-                            (r.Locations || []).some(l => l.itemRef === entry.pulledFrom)
-                        ).length;
-                        diag.resultsCount = (this.results || []).length;
-                        diag.inventoryModExists = diag.rowId ? !!inventoryModifications[diag.rowId] : false;
-                    }
-                    window.__lastRemoveDiag = diag;
-                    console.log('REMOVE DIAG', diag);
-                } catch (e) {
-                    window.__lastRemoveDiag = { error: String(e) };
+            // Remove the pull-log entry at the given index (newest-first order
+            // matches what the log renders). Index-based so it can never drift
+            // out of sync with the visible button.
+            removePullEntry(index) {
+                const entry = pullLog[index];
+                if (!entry) {
+                    this.updatePullLogUI();
+                    return;
                 }
-
-                if (this.unpullEntry(entryId)) {
+                if (this.unpullEntry(entry.id)) {
+                    // Refresh both the table and the log panel. render() can
+                    // early-return on empty results, so update the log directly.
+                    this.updatePullLogUI();
                     this.render();
                 }
             }
@@ -2096,13 +2110,14 @@
                 this.pullLogSummary.innerHTML = sumHtml;
                 
                 let html = '';
-                for (const entry of pullLog.slice().reverse()) {
+                for (let i = pullLog.length - 1; i >= 0; i--) {
+                    const entry = pullLog[i];
                     html += `
                         <div class="log-entry">
                             <span><span class="log-card">${escapeHtml(entry.cardName)}</span> → <span class="log-location">${escapeHtml(entry.location)}</span></span>
                             <span style="display:flex;align-items:center;gap:8px;">
                                 <span class="log-qty">Qty: ${entry.quantity}</span>
-                                <button class="btn btn-danger btn-sm" title="Undo this pull" style="padding:0 8px;font-size:13px;line-height:1.4;" onclick="window.ui.removePullEntry(${entry.id})">✕</button>
+                                <button class="btn btn-danger btn-sm" title="Undo this pull" style="padding:0 8px;font-size:13px;line-height:1.4;" onclick="window.ui.removePullEntry(${i})">✕</button>
                             </span>
                         </div>
                     `;
