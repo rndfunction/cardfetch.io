@@ -623,10 +623,11 @@
             if (!sc) return 6;
             const typeLine = String(sc.type_line || '');
             if (/\bland\b/i.test(typeLine)) return 7;
-            const ci = Array.isArray(sc.color_identity) ? sc.color_identity : [];
-            if (ci.length === 0) return 6;
-            if (ci.length > 1) return 5;
-            const r = COLOR_ORDER[ci[0]];
+            // Use the card's ACTUAL color (sc.colors), not color identity.
+            const cols = Array.isArray(sc.colors) ? sc.colors : [];
+            if (cols.length === 0) return 6;
+            if (cols.length > 1) return 5;
+            const r = COLOR_ORDER[cols[0]];
             return (typeof r === 'number') ? r : 6;
         }
 
@@ -638,67 +639,36 @@
         // Optional progress hook: set to a (done, total) => {} function before calling.
         let colorFetchProgress = null;
 
-        async function fetchColorRanks(cards) {
-            const onProgress = colorFetchProgress;
-            const cache = loadColorCache();
-            const result = {};
-            const need = [];
+        // Precomputed color table, loaded once from /card-colors.json.
+        // Keys are "setLower|number" (number normalized), values { rank, colors, name }.
+        let colorTable = {};
+        let colorTableLoaded = false;
 
+        async function loadColorTable() {
+            try {
+                const resp = await fetch('card-colors.json');
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                colorTable = await resp.json();
+                colorTableLoaded = true;
+            } catch (e) {
+                console.warn('card-colors.json not available; color sort disabled:', e.message);
+                colorTable = {};
+                colorTableLoaded = false;
+            }
+            return colorTable;
+        }
+
+        // Return color ranks for the given cards. Reads from the precomputed
+        // local table (no network) -- this is why color sort works regardless
+        // of whether the browser is allowed to call Scryfall directly.
+        // Cards absent from the table are simply omitted (they sort last).
+        async function fetchColorRanks(cards) {
+            const result = {};
             for (const c of cards) {
                 const key = String(c.set || '').toLowerCase().trim() + '|' + String(c.number || '').trim();
-                if (cache[key]) {
-                    result[key] = cache[key];
-                } else {
-                    need.push({ key, name: c.name, number: c.number });
-                }
+                const entry = colorTable[key];
+                if (entry) result[key] = entry;
             }
-
-            if (need.length === 0) return result;
-
-            const queue = need.filter(n => n.name && n.number);
-            const total = queue.length;
-            let done = 0;
-            const CONCURRENCY = 6;
-
-            const worker = async () => {
-                while (queue.length > 0) {
-                    const n = queue.shift();
-                    if (!n) break;
-                    try {
-                        const cleanName = stripNameSuffix(n.name) || n.name;
-                        const cleanNum = normalizeCollectorNumber(n.number);
-                        const q = encodeURIComponent('!"' + cleanName + '" number:' + cleanNum);
-                        const resp = await fetch('https://api.scryfall.com/cards/search?q=' + q, {
-                            headers: { 'Accept': 'application/json' }
-                        });
-                        if (resp.status === 200) {
-                            const data = await resp.json();
-                            if (data.total_cards === 1 && data.data && data.data[0]) {
-                                const sc = data.data[0];
-                                const entry = {
-                                    rank: colorRankFromScryfall(sc),
-                                    colors: sc.color_identity || [],
-                                    name: sc.name || ''
-                                };
-                                cache[n.key] = entry;
-                                result[n.key] = entry;
-                            }
-                        }
-                    } catch (e) {
-                        console.warn('Scryfall lookup failed for ' + n.name + ' #' + n.number + ':', e.message);
-                    }
-                    done++;
-                    if (typeof onProgress === 'function') onProgress(done, total);
-                }
-            };
-
-            const workers = [];
-            for (let i = 0; i < Math.min(CONCURRENCY, queue.length); i++) {
-                workers.push(worker());
-            }
-            await Promise.all(workers);
-
-            saveColorCache(cache);
             return result;
         }
 
@@ -1800,26 +1770,16 @@
             // Kick off color lookups in the background so Print is fast later.
             // Not awaited: the UI is fully usable while this runs.
             warmColors() {
-                const cards = (this.results || [])
-                    .map(r => ({ name: r['Pull Sheet Name'] || r['Clean Name'] || '', number: r['Number'] || '', set: r['Set'] || '' }))
-                    .filter(c => c.name && c.number);
-                if (cards.length === 0) return;
-
+                // Colors are precomputed in card-colors.json, so there is nothing
+                // to fetch here. Just reflect readiness in the toolbar indicator.
                 const el = document.getElementById('colorProgress');
-                let colorFetchProgressRef = (done, total) => {
-                    if (el) el.textContent = 'Fetching colors... ' + done + '/' + total;
-                };
-                colorFetchProgress = colorFetchProgressRef;
-
-                fetchColorRanks(cards)
-                    .then(() => {
-                        if (el) el.textContent = '✅ Colors ready';
-                        colorFetchProgress = null;
-                    })
-                    .catch((e) => {
-                        if (el) el.textContent = '⚠️ Color fetch failed';
-                        colorFetchProgress = null;
-                    });
+                if (el) {
+                    if (colorTableLoaded) {
+                        el.textContent = '✅ Colors ready (' + Object.keys(colorTable).length + ' cards)';
+                    } else {
+                        el.textContent = 'Colors: no table loaded';
+                    }
+                }
             }
             
 
@@ -2459,6 +2419,28 @@
                     const entry = ranks[rankKey(item)];
                     return entry ? entry.rank : 99;
                 };
+                // Color letters for the printed list: W/U/B/R/G in WUBRG order,
+                // 'C' for colorless, 'L' for land, '' when unknown.
+                const WUBRG = ['W', 'U', 'B', 'R', 'G'];
+                const colorLettersFor = (item) => {
+                    const entry = ranks[rankKey(item)];
+                    if (!entry) return '';
+                    if (entry.rank === 7) return 'L';
+                    const cols = Array.isArray(entry.colors) ? entry.colors : [];
+                    if (cols.length === 0) return 'C';
+                    const ordered = WUBRG.filter(c => cols.indexOf(c) >= 0);
+                    return ordered.length ? ordered.join('') : 'C';
+                };
+                const COLOR_NAMES = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green' };
+                const colorSectionFor = (item) => {
+                    const entry = ranks[rankKey(item)];
+                    if (!entry) return 'Unsorted';
+                    if (entry.rank === 7) return 'Lands';
+                    const cols = Array.isArray(entry.colors) ? entry.colors : [];
+                    if (cols.length === 0) return 'Colorless';
+                    if (cols.length > 1) return 'Multicolor';
+                    return COLOR_NAMES[cols[0]] || 'Colorless';
+                };
                 
                 const foundItems = this.results.filter(r => r['Status'] === 'Found' && !r['IsPulled']);
                 const pulledItems = this.results.filter(r => r['IsPulled']);
@@ -2585,8 +2567,21 @@
                     } else {
                         html += `<div class="print-box-header">📦 ${safeLocation}</div>`;
                     }
+
+                    // Color section counts within this box, in sort order.
+                    const sectionCounts = {};
+                    for (const it of items) {
+                        const sec = colorSectionFor(it);
+                        sectionCounts[sec] = (sectionCounts[sec] || 0) + 1;
+                    }
                     
+                    let currentSection = null;
                     for (const item of items) {
+                        const section = colorSectionFor(item);
+                        if (section !== currentSection) {
+                            currentSection = section;
+                            html += `<div style="margin:10px 0 4px 0;padding:4px 10px;background:#f0f2f5;border-radius:6px;font-weight:700;font-size:14px;color:#1a1a2e;">${section} (${sectionCounts[section] || 0})</div>`;
+                        }
                         totalPicks++;
                         const stockStatus = item['IsPulled'] ? 
                             `<span style="color: #f59e0b;">📦 Pulled ${item['PulledQty'] || 1}</span>` :
@@ -2608,6 +2603,7 @@
                             <div class="print-picking-item" style="${item['IsPulled'] ? 'border-left: 3px solid #f59e0b; background: #fffbeb;' : ''}">
                                 <div>
                                     <span style="font-weight:600;margin-right:10px;">${totalPicks}.</span>
+                                    ${currentSection === 'Multicolor' && colorLettersFor(item) ? `<span style="font-weight:700;color:#1a1a2e;background:#e5e7eb;border-radius:3px;padding:0 5px;margin-right:6px;font-size:12px;">${colorLettersFor(item)}</span>` : ''}
                                     <span class="card-name">${escapeHtml(item['Name'])}</span>
                                     <span class="card-details">${detailStr}</span>
                                     ${warnNote}
@@ -2706,7 +2702,9 @@
         // START THE APP
         // ============================================================
         
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Load the precomputed color table once, before wiring the UI.
+            await loadColorTable();
             const ui = new UI();
             window.ui = ui;
         });
