@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>cardfetch.io - Admin</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; color: #1a1a2e; }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  header { background: linear-gradient(135deg, #1a1a2e, #16213e); color: white; padding: 20px 24px; border-radius: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+  header h1 { font-size: 1.4rem; margin: 0; }
+  header a { color: #a5b4fc; text-decoration: none; font-size: 0.9rem; }
+  header a:hover { text-decoration: underline; }
+  .card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); margin-bottom: 20px; }
+  .card h2 { font-size: 1.1rem; margin: 0 0 8px 0; }
+  .card p { font-size: 0.9rem; color: #4b5563; margin: 0 0 16px 0; line-height: 1.5; }
+  .btn { padding: 10px 20px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+  .btn-primary { background: #6366f1; color: white; }
+  .btn-primary:hover { background: #4f46e5; }
+  .btn-danger { background: #ef4444; color: white; }
+  .btn-danger:hover { background: #dc2626; }
+  .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  .status { padding: 12px 16px; border-radius: 8px; font-size: 0.9rem; margin-top: 16px; display: none; }
+  .status.loading { background: #fffbeb; border: 1px solid #f59e0b; color: #92400e; display: block; }
+  .status.success { background: #f0fdf4; border: 1px solid #22c55e; color: #166534; display: block; }
+  .status.error { background: #fef2f2; border: 1px solid #ef4444; color: #991b1b; display: block; }
+  .batches { margin-top: 16px; }
+  .batches table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  .batches th, .batches td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e5e7eb; }
+  .batches th { background: #f9fafb; font-weight: 600; color: #374151; }
+  .batches td { color: #1f2937; }
+  .batches .empty { color: #6b7280; font-style: italic; padding: 12px 0; }
+  code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-size: 0.85em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🔧 cardfetch.io - Admin</h1>
+    <a href="/index.html">← Back to app</a>
+  </header>
+
+  <div class="card">
+    <h2>Seed server from CSV</h2>
+    <p>
+      Replaces the <strong>entire</strong> live inventory with the contents of
+      the selected CSV. Use this for initial setup, or to restore from a
+      backup. Every card in the current inventory will be removed.
+    </p>
+    <button class="btn btn-danger" id="seedBtn" type="button">Seed server from CSV</button>
+    <div class="status" id="seedStatus"></div>
+  </div>
+
+  <div class="card">
+    <h2>Write key</h2>
+    <p>
+      The write key is stored in this browser's localStorage. Clear it if
+      you've entered the wrong one and need to be prompted again.
+    </p>
+    <button class="btn btn-primary" id="resetKeyBtn" type="button">Reset write key</button>
+    <div class="status" id="keyStatus"></div>
+  </div>
+
+  <div class="card">
+    <h2>Scan batches</h2>
+    <p>
+      Batches created by "Append scan batch" on the main app. A seed (above)
+      doesn't create a batch, because it replaces rather than appends.
+    </p>
+    <button class="btn btn-primary" id="loadBatchesBtn" type="button">Load batches</button>
+    <div class="batches" id="batchesView"><div class="empty">Click "Load batches" to load.</div></div>
+  </div>
+</div>
+
+<script>
+// Same Worker URL as the main app. If you change this in /index.html,
+// change it here too.
+const API_BASE = 'https://cardfetch-api.rndfunction.workers.dev';
+
+function setStatus(el, kind, text) {
+  el.className = 'status ' + kind;
+  el.textContent = text;
+}
+
+function getWriteKey() {
+  return localStorage.getItem('cardfetch_write_key') || null;
+}
+
+function promptForKey() {
+  const entered = prompt('Enter the write key for the cardfetch server:');
+  if (!entered) return null;
+  return entered.trim();
+}
+
+document.getElementById('seedBtn').addEventListener('click', function () {
+  const seedStatus = document.getElementById('seedStatus');
+  let key = getWriteKey();
+  if (!key) key = promptForKey();
+  if (!key) {
+    setStatus(seedStatus, 'error', 'No write key. Click "Reset write key" and try again.');
+    return;
+  }
+  if (!confirm('Replace ALL rows on the server with the selected CSV?')) return;
+
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.csv,text/csv';
+  input.addEventListener('change', function () {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function () {
+      const text = String(reader.result || '');
+      if (!text.trim()) {
+        setStatus(seedStatus, 'error', 'Empty file.');
+        return;
+      }
+      setStatus(seedStatus, 'loading', 'Seeding server from ' + file.name + '...');
+      fetch(API_BASE + '/api/inventory', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'text/csv', 'X-Write-Key': key },
+        body: text
+      })
+        .then(function (r) {
+          if (r.ok) return r.json();
+          return r.text().then(function (t) { throw new Error(t || ('HTTP ' + r.status)); });
+        })
+        .then(function (data) {
+          localStorage.setItem('cardfetch_write_key', key);
+          const bits = [];
+          if (data.rows) bits.push(data.rows + ' rows');
+          if (data.syntheticIds) bits.push(data.syntheticIds + ' synthetic IDs');
+          if (data.duplicatesSummed) bits.push(data.duplicatesSummed + ' duplicates summed');
+          setStatus(seedStatus, 'success', 'Seeded server: ' + bits.join(', '));
+        })
+        .catch(function (err) {
+          const msg = String(err && err.message || err);
+          if (/403|Forbidden/i.test(msg)) localStorage.removeItem('cardfetch_write_key');
+          setStatus(seedStatus, 'error', 'Seed failed: ' + msg);
+        });
+    };
+    reader.readAsText(file);
+  });
+  input.click();
+});
+
+document.getElementById('resetKeyBtn').addEventListener('click', function () {
+  const keyStatus = document.getElementById('keyStatus');
+  if (!confirm('Clear the stored write key? You will be prompted again on the next write.')) return;
+  localStorage.removeItem('cardfetch_write_key');
+  setStatus(keyStatus, 'success', 'Write key cleared.');
+});
+
+document.getElementById('loadBatchesBtn').addEventListener('click', function () {
+  const view = document.getElementById('batchesView');
+  const btn = document.getElementById('loadBatchesBtn');
+  btn.disabled = true;
+  view.innerHTML = '<div class="empty">Loading...</div>';
+  fetch(API_BASE + '/api/batches')
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      const batches = (data && data.batches) || [];
+      if (batches.length === 0) {
+        view.innerHTML = '<div class="empty">No batches yet. Batches are created by "Append scan batch" on the main app.</div>';
+        return;
+      }
+      let html = '<table><thead><tr><th>Box</th><th>Scanned on</th><th>Row count</th></tr></thead><tbody>';
+      for (const b of batches) {
+        html += '<tr><td>' + escapeHtml(b.box) + '</td><td>' + escapeHtml(b.scanned_on) + '</td><td>' + escapeHtml(String(b.row_count)) + '</td></tr>';
+      }
+      html += '</tbody></table>';
+      view.innerHTML = html;
+    })
+    .catch(function (err) {
+      view.innerHTML = '<div class="empty">Load failed: ' + escapeHtml(String(err && err.message || err)) + '</div>';
+    })
+    .finally(function () { btn.disabled = false; });
+});
+
+function escapeHtml(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+</script>
+</body>
+</html>

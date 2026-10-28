@@ -1,0 +1,12 @@
+name = "cardfetch-api"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+# D1 binding. After creating the database, paste its id below.
+[[d1_databases]]
+binding = "DB"
+database_name = "cardfetch"
+database_id = "REPLACE_WITH_D1_ID"
+
+# WRITE_KEY is set as a Worker secret, not here:
+#   wrangler secret put WRITE_KEY

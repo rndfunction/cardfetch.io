@@ -419,6 +419,7 @@
                     </div>
                 </div>
                 
+
                 <!-- Quick Lookup -->
                 <div class="quick-lookup-section">
                     <h4 style="margin-bottom: 8px;">🔎 Quick Card Lookup</h4>
@@ -465,8 +466,10 @@
                     <div id="pullLogSummary" style="margin:10px 0;padding:10px 12px;background:#f8fafc;border-radius:8px;border:1px solid #e5e7eb;"></div>
                     <div class="pulled-log" id="pullLog"></div>
                     <div class="action-buttons">
-                        <button class="btn btn-success btn-sm" id="downloadUpdatedInventoryBtn">📥 Download Updated Inventory</button>
-                        <button class="btn btn-danger btn-sm" id="commitToInventoryBtn">💾 Commit to inventory.csv</button>
+                        <button class="btn btn-success btn-sm" id="downloadUpdatedInventoryBtn" style="display:none;">📥 Download Updated Inventory</button>
+                        <button class="btn btn-danger btn-sm" id="commitToInventoryBtn" style="display:none;">💾 Commit to inventory.csv</button>
+                        <button class="btn btn-primary btn-sm" id="saveToServerBtn" style="display:none;">☁️ Save to server</button>
+                        <button class="btn btn-primary btn-sm" id="appendBatchBtn" style="display:none;">➕ Append scan batch</button>
                         <button class="btn btn-warning btn-sm" id="undoAllPullsBtn">↩️ Undo All Pulls</button>
                     </div>
                 </div>
@@ -531,6 +534,8 @@
         // ============================================================
         
         const DEFAULT_INVENTORY_FILE = 'inventory.csv';
+        // Set to your Worker URL to enable live mode; null keeps the static file.
+        const API_BASE = 'https://cardfetch-api.rndfunction.workers.dev';
         const PRODUCT_LINE_FILTER = 'Magic';
 
         // Unified stock status vocabulary used across pull-sheet and quick-lookup modes.
@@ -551,7 +556,9 @@
         // Column names that may hold the authoritative stock count.
         // Prefer a future 'Stock Qty' header, fall back to the TCGPlayer-style
         // 'Add to Quantity' currently in use.
-        const STOCK_QTY_COLUMNS = ['Stock Qty', 'Add to Quantity', 'AddToQuantity', 'Add Quantity'];
+        // Quantity column aliases, in priority order. `Total Quantity` is the
+        // server canonical; `Add to Quantity` is what the CardCastle export uses.
+        const STOCK_QTY_COLUMNS = ['Total Quantity', 'Stock Qty', 'Add to Quantity', 'AddToQuantity', 'Add Quantity'];
 
         // Normalize a value for identity comparison.
         function normalizeKey(value) {
@@ -1491,6 +1498,7 @@
                 this.inventoryZone = document.getElementById('inventoryZone');
                 this.pullSheetZone = document.getElementById('pullsheetZone');
                 this.inventoryInput = document.getElementById('inventoryFile');
+
                 this.pullSheetInput = document.getElementById('pullsheetFile');
                 this.inventoryFileName = document.getElementById('inventoryFileName');
                 this.pullSheetFileName = document.getElementById('pullsheetFileName');
@@ -1569,6 +1577,11 @@
 
                 this.downloadUpdatedInventoryBtn.addEventListener('click', () => this.downloadUpdatedInventory());
                 this.commitToInventoryBtn.addEventListener('click', () => this.commitToInventory());
+                const saveBtn = document.getElementById('saveToServerBtn');
+                if (saveBtn) saveBtn.addEventListener('click', () => this.saveToServer());
+                const appendBtn = document.getElementById('appendBatchBtn');
+                if (appendBtn) appendBtn.addEventListener('click', () => this.appendScanBatch());
+                this.applyApiMode();
                 const expandBtn = document.getElementById('expandSetupBtn');
                 if (expandBtn) expandBtn.addEventListener('click', () => this.expandSetup());
                 this.undoAllPullsBtn.addEventListener('click', () => {
@@ -1584,10 +1597,123 @@
                 this.qtyFilter.addEventListener('change', () => this.render());
             }
             
+            applyApiMode() {
+                // In static mode (no API_BASE), show the HD-bound buttons.
+                // In live mode, hide them; the server buttons are the truth.
+                const downloadBtn = document.getElementById('downloadUpdatedInventoryBtn');
+                const commitBtn = document.getElementById('commitToInventoryBtn');
+                if (!API_BASE) {
+                    if (downloadBtn) downloadBtn.style.display = '';
+                    if (commitBtn) commitBtn.style.display = '';
+                    return;
+                }
+                if (downloadBtn) downloadBtn.style.display = 'none';
+                if (commitBtn) commitBtn.style.display = 'none';
+                const saveBtn = document.getElementById('saveToServerBtn');
+                if (saveBtn) saveBtn.style.display = '';
+                const appendBtn = document.getElementById('appendBatchBtn');
+                if (appendBtn) appendBtn.style.display = '';
+
+            }
+
+            getWriteKey() {
+                let key = localStorage.getItem('cardfetch_write_key');
+                if (!key) {
+                    key = prompt('Enter the write key for the cardfetch server:');
+                }
+                return key ? key.trim() : null;
+            }
+
+            rememberWriteKey(key) {
+                if (key) localStorage.setItem('cardfetch_write_key', key.trim());
+            }
+
+            forgetWriteKey() {
+                localStorage.removeItem('cardfetch_write_key');
+                this.setStatus('success', 'Write key cleared', 'You will be prompted again on next write', '✅');
+            }
+
+
+            saveToServer() {
+                if (!API_BASE) return;
+                const key = this.getWriteKey();
+                if (!key) { this.setStatus('error', 'No write key', 'Write key is required to save', '❌'); return; }
+                const updated = getUpdatedInventory(this.engine.inventory);
+                if (!updated || updated.length === 0) { this.setStatus('error', 'No inventory to save', '', '❌'); return; }
+                // Build the updates list. Send every row: quantities may be unchanged,
+                // which is harmless (UPDATE sets the same value). Keeps the logic simple.
+                const updates = [];
+                for (const r of updated) {
+                    const id = r['TCGplayer Id'] || r['TCGplayerId'] || r['Id'];
+                    const box = r['Where is it?'] || r['Location'] || r['Box Location'];
+                    if (!id || !box) continue;
+                    const qtyRaw = (r['Total Quantity'] !== undefined) ? r['Total Quantity']
+                                 : (r['Quantity'] !== undefined ? r['Quantity'] : r['Qty']);
+                    const qty = parseInt(String(qtyRaw == null ? '' : qtyRaw).replace(/[^0-9-]/g, ''));
+                    updates.push({ tcgplayer_id: String(id), box: String(box), total_quantity: isNaN(qty) ? 0 : qty });
+                }
+                if (updates.length === 0) { this.setStatus('error', 'No valid rows to save', '', '❌'); return; }
+                this.setStatus('loading', 'Saving to server...', API_BASE + ' (' + updates.length + ' rows)', '⏳');
+                fetch(API_BASE + '/api/quantities', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json', 'X-Write-Key': key },
+                    body: JSON.stringify({ updates: updates })
+                })
+                    .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || ('HTTP ' + r.status)); }))
+                    .then(data => {
+                        this.rememberWriteKey(key);
+                        this.setStatus('success', 'Saved to server', (data && data.updated ? data.updated + ' rows' : ''), '✅');
+                    })
+                    .catch(err => {
+                        const msg = String(err && err.message || err);
+                        if (/403|Forbidden/i.test(msg)) this.forgetWriteKey();
+                        this.setStatus('error', 'Save failed', msg, '❌');
+                    });
+            }
+
+            appendScanBatch() {
+                if (!API_BASE) return;
+                const key = this.getWriteKey();
+                if (!key) { this.setStatus('error', 'No write key', 'Write key is required to append', '❌'); return; }
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.csv,text/csv';
+                input.addEventListener('change', () => {
+                    const file = input.files && input.files[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        const text = String(reader.result || '');
+                        if (!text.trim()) { this.setStatus('error', 'Empty file', file.name, '❌'); return; }
+                        this.setStatus('loading', 'Appending ' + file.name + '...', API_BASE, '⏳');
+                        fetch(API_BASE + '/api/append', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'text/csv', 'X-Write-Key': key },
+                            body: text
+                        })
+                            .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || ('HTTP ' + r.status)); }))
+                            .then(data => {
+                                this.rememberWriteKey(key);
+                                this.setStatus('success', 'Appended as box ' + (data && data.box), (data && data.rows ? data.rows + ' rows' : ''), '✅');
+                                this.loadDefaultInventory();
+                            })
+                            .catch(err => {
+                                const msg = String(err && err.message || err);
+                                if (/403|Forbidden/i.test(msg)) this.forgetWriteKey();
+                                this.setStatus('error', 'Append failed', msg, '❌');
+                            });
+                    };
+                    reader.readAsText(file);
+                });
+                input.click();
+            }
+
             loadDefaultInventory() {
-                this.setStatus('loading', 'Loading inventory...', DEFAULT_INVENTORY_FILE, '⏳ Loading');
-                
-                fetch(DEFAULT_INVENTORY_FILE)
+                const source = API_BASE ? (API_BASE + '/api/inventory') : DEFAULT_INVENTORY_FILE;
+                const label = API_BASE ? 'server' : DEFAULT_INVENTORY_FILE;
+                this.setStatus('loading', 'Loading inventory...', label, '⏳ Loading');
+
+                fetch(source)
                     .then(response => {
                         if (!response.ok) throw new Error('File not found');
                         return response.text();
