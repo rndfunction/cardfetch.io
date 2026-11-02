@@ -37,6 +37,34 @@ in with an empty `TCGplayer Id`. These are real physical cards, so we don't
 drop them. Instead they get a synthetic ID: `local:<set>:<number>:<condition>`,
 slugified. This makes them findable, stable, and obviously non-TCGplayer.
 
+### Event trail
+
+The `events` table records **what happened to a card over time**. It's the
+difference between "where is this card now" and "where has it been and why."
+
+Columns:
+
+- `tcgplayer_id` (the card's stable id, including synthetic `local:` ids)
+- `kind` — `'pull'`, `'move'`, or `'add'`
+- `box_from` — the box it was in (for pull and move; null for add)
+- `box_to` — the box it went to (for move and add; null for pull)
+- `order_token` — the order it was pulled for, if known (from the pull sheet)
+- `quantity` — how many
+- `source` — `'live'` (written by the app), `'backfill'` (loaded from old sheets), `'manual'` (future)
+- `metadata` — free-form JSON (e.g. `{"reason": "bulk"}`)
+- `created_at` — when
+
+Queries:
+
+    GET /api/events                                # recent events
+    GET /api/events?tcgplayer_id=X                 # one card's history
+    GET /api/events?order=TOKEN                    # one order's history
+
+Events are written **in the same D1 batch** as the state change they
+describe, so the trail and the inventory never disagree. When you pull a
+card, the quantity update and the `pull` event land together. When you move
+a card, the box update and the `move` event land together.
+
 ### Duplicate handling
 
 If two rows share `(tcgplayer_id, box)`, they represent two physical copies
@@ -58,6 +86,116 @@ usually blank in the export). The Worker reads `Add to Quantity` first, then
 
 On the front end, the `STOCK_QTY_COLUMNS` array must include BOTH column names
 in priority order. It's how the app knows where the quantity lives in a row.
+
+## Search model
+
+There are **two search modes**, and they serve different purposes.
+
+### Quick lookup (name-driven)
+
+For "here are the cards I need to pull, give me their locations." The user
+pastes a list of card names (one per line, optionally `Name | Set | Number |
+Condition`), clicks **Find Locations**, and the engine returns one result
+per *card name*, with all locations for that card. This is the pull-sheet
+flow. It hits the Worker only when saving.
+
+### Advanced search (row-driven)
+
+For "show me everything that matches these filters." Six fields (Name, Set,
+Box, Condition, Number, Quantity) combined with AND; empty fields are
+ignored. It runs **live**, debounced ~200ms on input. It returns one result
+per *inventory row*, not per card name — so `Set = "Rise of the Eldrazi"`
+returns every row in that set, which is what makes bulk operations possible.
+
+**Advanced search is entirely front-end.** It calls `engine.advancedQuery()`,
+which iterates the already-loaded inventory. No Worker request. No D1 query.
+Live filtering costs zero traffic.
+
+### Two result filters, not one
+
+- **Advanced search** (always-visible form above the results table) *generates*
+  results from the inventory.
+- **Filter box** (the existing input in the results toolbar) *narrows* an
+  existing result set: search text, status filter, quantity filter.
+
+Both compose: `Set = X` gives 200 rows; the filter box narrows to "foil";
+the status filter narrows to "in stock." Different tools, same pipeline.
+
+## Moves and bulk operations
+
+A **move** is the action "this card is now in a different box." It updates
+`cards.box` and writes an event in the same D1 batch. Three ways to trigger
+it:
+
+1. **`↔️` next to a location badge** in a search result — the current box is
+   known, so the inline picker pre-fills it.
+2. **`🤔` next to a location badge** — the same picker, but with the framing
+   "I went to this box and it wasn't there." Same code path; different
+   reason string in the event metadata (`not in expected box`).
+3. **Bulk move** — checkboxes on each in-stock row, a floating action bar
+   that appears when ≥1 is checked, and a "Move all to..." button. Every
+   selected row's `from_box` is its own current box, so a batch can span
+   different source boxes.
+
+The move picker is an **inline popover**, not a native `prompt()`. It shows
+a text input plus a filtered list of box codes from the current inventory
+(minus the current box), so the common case is one click.
+
+### Endpoints
+
+- `PATCH /api/cards/move` — single move, `{tcgplayer_id, from_box, to_box}`.
+  Returns `404` if the row isn't where the caller expected (stale cache,
+  concurrent move), so the caller can re-fetch.
+- `PATCH /api/cards/move-bulk` — array of moves, **best-effort**. One bad
+  move doesn't abort the batch. Returns `{moved, skipped: [{id, reason}]}`.
+
+### Re-render discipline
+
+After a move (single or bulk), the app updates the in-memory result rows
+(`Locations[0].location` and `Location Display`) and calls `render()`
+**directly**. It does not call `findLocations()` — that was the old behavior,
+and it broke the advanced-search flow (quick lookup would ignore the
+advanced form). If you ever add another action that changes a row's state,
+follow the same pattern: update the in-memory result, then `render()`.
+
+## History and ghost hints
+
+### Ghost hint (surface)
+
+Search results show a small line under the location badges:
+
+    👻 last pulled from 081826-2 on 2026-10-30 04:42:06
+
+This is filled asynchronously by `refreshEventHints()`, which fetches the
+most recent `pull` event for each visible card, caches it on `hintCache`, and
+re-renders once if anything new arrived.
+
+**Two subtleties:**
+
+1. **Result rows don't carry a TCGplayer Id at the top level.** The id lives
+   on `row.OriginalItem['TCGplayer Id']`, or, for NOT FOUND rows, on the
+   `nameToId` lookup (a name→id index built from the full inventory on first
+   use). `rowIdOf` resolves all three sources.
+2. **The hint labels itself honestly.** When the row has an `OriginalItem`
+   (i.e. this specific printing matched), it says "last pulled from X."
+   When it doesn't (the row is "not found" and we resolved the id by name),
+   it says "last pulled (any printing) from X." That difference matters:
+   it's a feature, not a bug, and the label reflects it.
+
+The hint is **never** authoritative. It's a hint. The full history is a
+click away.
+
+### History panel (depth)
+
+A `📜` button on each row opens the history panel, which fetches
+`GET /api/events?tcgplayer_id=X` and renders the events with:
+- kind (`Pull`, `Move`, `Add`) and emoji
+- detail (box_from, box_to, order, reason)
+- timestamp
+- a source badge, green for `live`, gray for `backfill`
+
+The panel is an **inline popover**, not a modal, so you can see the row and
+its history at the same time. Close button, Escape, and click-outside.
 
 ## API
 
@@ -84,6 +222,12 @@ These are the things that broke during development and are not obvious from
 reading the code. Do not undo them without understanding why they exist.
 
 ### 1. Use `.bind(...params)`, not `.bind.apply(null, params)`
+
+**Before every deploy, grep `/worker/src/index.js` for `.bind.apply`.** If any
+hits appear, fix them. This bug was reintroduced *during* the events feature
+after being written up, so grep is more reliable than memory. The
+`dbSession` error does not point at this line; it looks like a platform
+error. It is not.
 
 Early code used `.bind.apply(null, params)` to spread a parameter array.
 This triggered a mysterious `Cannot read properties of null (reading
@@ -112,7 +256,44 @@ etc.). It's currently not populated on import, because a 24-column INSERT
 with the raw JSON string triggered the same `dbSession` bug. It will be
 populated later via a separate write if needed.
 
-### 5. `STOCK_QTY_COLUMNS` on the front end
+### 5. `getRowId` is a WeakMap keyed on the object
+
+`getRowId(row)` uses a `WeakMap` keyed on the *object reference*. Copies of a
+row (e.g. `{...item}` in `getUpdatedInventory`) are **different objects**, so
+`getRowId(copy)` returns `null`. If downstream code needs the row's id after
+a copy, it must be carried along.
+
+The fix used: `getUpdatedInventory` attaches `copy.__rowId = rowId`, and
+downstream code reads `r.__rowId` first, falling back to `getRowId(r)`.
+**Do not call `getRowId()` on copies.**
+
+### 6. `this` doesn't propagate into nested `function` declarations
+
+Inside an `async` method, a nested `function foo() {}` gets its own `this`
+(usually `undefined` or `window`), **not** the method's `this`. Nested
+`const foo = () => {}` arrow functions **do** capture `this`.
+
+This caused a real bug: `refreshEventHints` had `function rowIdOf(r) { ... this.nameToId ... }`,
+and `this` was `undefined` inside `rowIdOf`, so `this.nameToId` threw and the
+whole hint fetch silently hung. Converting it to `const rowIdOf = (r) => {...}`
+fixed it. **Prefer arrow functions for nested helpers that need `this`.**
+
+### 7. Live search does not touch the Worker
+
+Advanced search runs entirely in the browser over the already-loaded
+inventory. `engine.advancedQuery()` iterates the in-memory array. Typing in
+the advanced-search fields does not make any network request. This is what
+keeps the free tier comfortable and the UI instant.
+
+**Only these things hit the Worker:**
+- Loading the inventory (once per page load)
+- Saving a pull or a move (once per action)
+- Opening the history panel (once per card inspected)
+
+At a shop's realistic usage (a few hundred interactions a day), that's
+well under 1% of the Cloudflare free tier limits.
+
+### 8. `STOCK_QTY_COLUMNS` on the front end
 
 The `findCardMatches` search logic filters to `getStockQty(item) > 0`. If
 `STOCK_QTY_COLUMNS` doesn't include the column name that the loaded data

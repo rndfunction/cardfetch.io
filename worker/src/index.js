@@ -358,6 +358,8 @@ async function handleQuantitiesPatch(req, env) {
   if (!Array.isArray(updates) || updates.length === 0) {
     return Response.json({ ok: false, error: 'No updates provided' }, { status: 400 });
   }
+  const events = Array.isArray(body && body.events) ? body.events : [];
+
   const db = env.DB.withSession('first-primary');
   const statements = [];
   for (const u of updates) {
@@ -371,13 +373,158 @@ async function handleQuantitiesPatch(req, env) {
   if (statements.length === 0) {
     return Response.json({ ok: false, error: 'No valid updates' }, { status: 400 });
   }
+
+  // Append events in the same batch, so quantities and trail land together.
+  for (const e of events) {
+    if (!e || !e.tcgplayer_id || !e.kind) continue;
+    statements.push(
+      db.prepare(
+        'INSERT INTO events (tcgplayer_id, kind, box_from, box_to, order_token, quantity, source, metadata) ' +
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      ).bind(
+        String(e.tcgplayer_id),
+        String(e.kind),
+        e.box_from || null,
+        e.box_to || null,
+        e.order_token || null,
+        Number.isFinite(Number(e.quantity)) ? Number(e.quantity) : null,
+        e.source || 'live',
+        e.metadata || null
+      )
+    );
+  }
+
   await db.batch(statements);
-  return Response.json({ ok: true, updated: statements.length });
+  return Response.json({ ok: true, updated: updates.length, eventsRecorded: events.length });
 }
 
 async function handleBatches(env) {
   const res = await env.DB.prepare('SELECT box, scanned_on, row_count FROM scan_batches ORDER BY box').all();
   return Response.json({ batches: res.results || [] });
+}
+
+// Bulk move: same semantics as handleMove, but accepts an array and
+// reports per-entry results. Best-effort: one bad move doesn't abort the
+// others. Used by the checkbox selection UI.
+// Body: { moves: [{ tcgplayer_id, from_box, to_box }], reason? }
+async function handleMoveBulk(req, env) {
+  let body;
+  try { body = await req.json(); } catch (e) {
+    return Response.json({ ok: false, error: 'Body must be JSON' }, { status: 400 });
+  }
+  const moves = (body && body.moves) || [];
+  if (!Array.isArray(moves) || moves.length === 0) {
+    return Response.json({ ok: false, error: 'No moves provided' }, { status: 400 });
+  }
+  const reason = body.reason || 'bulk';
+  const db = env.DB.withSession('first-primary');
+  const skipped = [];
+  const statements = [];
+  for (const m of moves) {
+    if (!m || !m.tcgplayer_id || !m.from_box || !m.to_box) {
+      skipped.push({ tcgplayer_id: m && m.tcgplayer_id, reason: 'missing fields' });
+      continue;
+    }
+    if (m.from_box === m.to_box) {
+      skipped.push({ tcgplayer_id: m.tcgplayer_id, reason: 'same box' });
+      continue;
+    }
+    statements.push(
+      db.prepare('UPDATE cards SET box = ? WHERE tcgplayer_id = ? AND box = ?')
+        .bind(String(m.to_box), String(m.tcgplayer_id), String(m.from_box))
+    );
+    statements.push(
+      db.prepare(
+        'INSERT INTO events (tcgplayer_id, kind, box_from, box_to, quantity, source, metadata) ' +
+        'VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).bind(
+        String(m.tcgplayer_id), 'move', String(m.from_box), String(m.to_box), 1, 'live',
+        JSON.stringify({ reason: String(reason) })
+      )
+    );
+  }
+  if (statements.length === 0) {
+    return Response.json({ ok: false, error: 'No valid moves', skipped: skipped }, { status: 400 });
+  }
+  try {
+    for (let i = 0; i < statements.length; i += BATCH_CHUNK) {
+      await db.batch(statements.slice(i, i + BATCH_CHUNK));
+    }
+  } catch (e) {
+    return Response.json({ ok: false, error: String(e && e.message || e), skipped: skipped }, { status: 500 });
+  }
+  return Response.json({ ok: true, moved: statements.length / 2, skipped: skipped });
+}
+
+// Move a card from one box to another. Updates the canonical `cards.box`
+// AND writes a 'move' event. Both happen in the same batch, so they always
+// agree.
+// Body: { tcgplayer_id, from_box, to_box, reason? }
+async function handleMove(req, env) {
+  let body;
+  try { body = await req.json(); } catch (e) {
+    return Response.json({ ok: false, error: 'Body must be JSON' }, { status: 400 });
+  }
+  const { tcgplayer_id, from_box, to_box, reason } = body || {};
+  if (!tcgplayer_id || !from_box || !to_box) {
+    return Response.json({ ok: false, error: 'tcgplayer_id, from_box, and to_box are required' }, { status: 400 });
+  }
+  if (from_box === to_box) {
+    return Response.json({ ok: false, error: 'from_box and to_box are the same' }, { status: 400 });
+  }
+  const db = env.DB.withSession('first-primary');
+  try {
+    // Update the row.
+    const upd = await db.prepare(
+      'UPDATE cards SET box = ? WHERE tcgplayer_id = ? AND box = ?'
+    ).bind(to_box, tcgplayer_id, from_box).run();
+    const changes = upd.meta ? upd.meta.changes : null;
+    if (changes === 0) {
+      // The row wasn't where we expected. Possibly already moved, or the
+      // from_box is stale. Return a clear error; the caller can re-fetch.
+      return Response.json({
+        ok: false,
+        error: 'No card found with that tcgplayer_id in the given box',
+        tcgplayer_id: tcgplayer_id,
+        from_box: from_box
+      }, { status: 404 });
+    }
+    // Write the event.
+    await db.prepare(
+      'INSERT INTO events (tcgplayer_id, kind, box_from, box_to, quantity, source, metadata) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).bind(
+      String(tcgplayer_id), 'move', String(from_box), String(to_box), 1, 'live',
+      reason ? JSON.stringify({ reason: String(reason) }) : null
+    ).run();
+    return Response.json({ ok: true, from: from_box, to: to_box });
+  } catch (e) {
+    return Response.json({ ok: false, error: String(e && e.message || e) }, { status: 500 });
+  }
+}
+
+// Read events. Query with ?tcgplayer_id=X for card history, or ?order=TOKEN
+// for order history, or neither for the most recent N events.
+async function handleEvents(env, url) {
+  const card = url.searchParams.get('tcgplayer_id');
+  const order = url.searchParams.get('order');
+  const limitParam = parseInt(url.searchParams.get('limit') || '200', 10);
+  const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 500) : 200;
+
+  let sql;
+  let bind = [];
+  if (card) {
+    sql = 'SELECT * FROM events WHERE tcgplayer_id = ? ORDER BY created_at DESC LIMIT ?';
+    bind = [card, limit];
+  } else if (order) {
+    sql = 'SELECT * FROM events WHERE order_token = ? ORDER BY created_at DESC LIMIT ?';
+    bind = [order, limit];
+  } else {
+    sql = 'SELECT * FROM events ORDER BY created_at DESC LIMIT ?';
+    bind = [limit];
+  }
+  const res = await env.DB.prepare(sql).bind(...bind).all();
+  return Response.json({ events: res.results || [], count: (res.results || []).length });
 }
 
 // --- Entry --------------------------------------------------------------
@@ -412,7 +559,16 @@ async function handleRequest(req, env) {
       if (!(await checkWriteKey(req, env))) return withCors(new Response('Forbidden', { status: 403 }));
       return withCors(await handleQuantitiesPatch(req, env));
     }
+    if (path === '/api/cards/move' && req.method === 'PATCH') {
+      if (!(await checkWriteKey(req, env))) return withCors(new Response('Forbidden', { status: 403 }));
+      return withCors(await handleMove(req, env));
+    }
+    if (path === '/api/cards/move-bulk' && req.method === 'PATCH') {
+      if (!(await checkWriteKey(req, env))) return withCors(new Response('Forbidden', { status: 403 }));
+      return withCors(await handleMoveBulk(req, env));
+    }
     if (path === '/api/batches' && req.method === 'GET') return withCors(await handleBatches(env));
+    if (path === '/api/events' && req.method === 'GET') return withCors(await handleEvents(env, url));
     return withCors(new Response('Not found', { status: 404 }));
   } catch (err) {
     const msg = String((err && err.message) || err);

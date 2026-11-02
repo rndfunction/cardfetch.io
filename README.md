@@ -13,10 +13,24 @@ so you can find it when a customer orders it.
 
 - **Look up a card**: search by name, set, and number. The app tells you
   which box it's in and how many copies you have.
+- **Advanced search**: an always-visible form with separate fields for Name,
+  Set, Box, Condition, Number, and quantity. Filters combine, and results
+  update live as you type. Search "Rise of the Eldrazi" in the Set field and
+  see every card in that set, in one keystroke.
 - **Pull cards for an order**: mark cards as pulled as you find them. The
   app keeps a pull log.
 - **Commit the pull**: write the updated quantities back to the live
   inventory, so every machine sees the change.
+- **Move a card**: found a card in a different box than expected? Click
+  `↔️` (or `🤔` if you went to the box and it wasn't there) and record the
+  move. The trail keeps a record.
+- **Bulk move**: check the boxes on multiple cards (or "select all visible"),
+  and move them all to a new box in one step. Great for "the whole set is in
+  the wrong box."
+- **Ghost hints**: search results show "👻 last pulled from X on Y." Useful
+  when a card isn't where the inventory says it should be.
+- **History**: click `📜` on any row to see every pull and move for that card,
+  with timestamps and sources.
 - **Append a scan batch**: upload a new scanned CSV. The app assigns it a
   box number (today's date, plus -1, -2 for multiple scans the same day)
   and adds it to the inventory.
@@ -56,10 +70,30 @@ The app has two modes, controlled by `API_BASE` in `/index.html`:
 
 ## Usage
 
-1. Open the app.
-2. Search for a card in the search box or Quick Lookup.
-3. When you find it, mark it as pulled.
-4. Click **Save to server** to commit your pulls to the live inventory.
+### Two ways to search
+
+**Quick lookup** (for pulling an order): paste card names into the Quick
+Lookup field in the setup panel, one per line, and click **Find Locations**.
+The app finds each card and shows every box it's in.
+
+**Advanced search** (for browsing or bulk operations): use the always-visible
+form above the results. Fill in any combination of Name, Set, Box, Condition,
+Number, and quantity. Empty fields are ignored; results update live as you
+type. Great for "show me everything in this set" or "what's in box 80326?"
+
+### Pulling and moving
+
+1. Search for a card using either mode above.
+2. Mark it as pulled (or use the `+`/`-` buttons to adjust quantity pulled).
+3. Click **Save to server** to commit your pulls to the live inventory.
+
+If a card isn't where the inventory says it is, click `↔️` (or `🤔` if the
+box is empty) to record the move. The event trail keeps a history.
+
+For bulk operations, check the boxes on multiple rows (or use "select all
+visible"), then click "Move all to..." in the floating bar.
+
+### Adding a new batch of scanned cards
 
 To add a new batch of scanned cards:
 
