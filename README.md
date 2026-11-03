@@ -17,10 +17,14 @@ so you can find it when a customer orders it.
   Set, Box, Condition, Number, and quantity. Filters combine, and results
   update live as you type. Search "Rise of the Eldrazi" in the Set field and
   see every card in that set, in one keystroke.
-- **Pull cards for an order**: mark cards as pulled as you find them. The
-  app keeps a pull log.
-- **Commit the pull**: write the updated quantities back to the live
-  inventory, so every machine sees the change.
+- **Pull by order**: load a pull sheet with many orders, then check the
+  1-3 orders you're ready to work on. The results table filters to just
+  those orders' cards, and **Print** prints only that subset. Staff can
+  commit each batch as they finish it, without losing the rest.
+- **Pull cards**: mark cards as pulled as you find them. The pull log
+  groups by order, so you can commit a subset at a time.
+- **Commit**: write the updated quantities back to the live inventory,
+  only for the orders you're actually shipping.
 - **Move a card**: found a card in a different box than expected? Click
   `↔️` (or `🤔` if you went to the box and it wasn't there) and record the
   move. The trail keeps a record.
@@ -81,11 +85,24 @@ form above the results. Fill in any combination of Name, Set, Box, Condition,
 Number, and quantity. Empty fields are ignored; results update live as you
 type. Great for "show me everything in this set" or "what's in box 80326?"
 
-### Pulling and moving
+### Pulling a batch of orders
+
+1. Upload a pull sheet in the setup panel and click **Find Locations**.
+2. An **order picker** appears above the results, listing every order in
+   the sheet with its card and unit counts.
+3. **Check** the 1-3 orders you want to work on. The results table filters
+   live to those orders' cards. (Leave all unchecked to see everything.)
+4. Click **🖨️ Print** to print the picking list for just those orders.
+5. Staff pulls the cards they find. The pull log groups them by order.
+6. Click **☁️ Commit Selected** to commit only the pulled orders. The rest
+   stay loaded and ready for the next shift.
+7. Uncheck the finished batch, check the next one, repeat.
+
+### Pulling and moving a single card
 
 1. Search for a card using either mode above.
 2. Mark it as pulled (or use the `+`/`-` buttons to adjust quantity pulled).
-3. Click **Save to server** to commit your pulls to the live inventory.
+3. Click **☁️ Commit Selected** to commit the pull.
 
 If a card isn't where the inventory says it is, click `↔️` (or `🤔` if the
 box is empty) to record the move. The event trail keeps a history.

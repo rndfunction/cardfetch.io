@@ -141,6 +141,45 @@ The move picker is an **inline popover**, not a native `prompt()`. It shows
 a text input plus a filtered list of box codes from the current inventory
 (minus the current box), so the common case is one click.
 
+## Appending scans
+
+A **scan** is what the CardCastle scanner produces: TCGplayer-style columns,
+but no `Where is it?` column, because the physical box isn't known until
+the human assigns it. This is a third format, separate from the TCGplayer
+export and the CardCastle-native export.
+
+### Format detection
+
+`detectFormat(header)` returns one of:
+
+- `'cardcastle'` — has `Title` and `_1/_2/_3` (native CardCastle export)
+- `'tcgplayer'` — has `Where is it?` (standard export)
+- `'scan'` — has `Product Name`, `Set Name`, and `Number`, but no
+  `Where is it?` and no `_1/_3` (raw scan output)
+- `'unknown'` — anything else, rejected
+
+The `'scan'` format uses the same column mapping as `'tcgplayer'`, except
+`box` is empty and is filled in by the caller's `boxOverride`.
+
+### The append flow
+
+1. User clicks **Append scan batch** in the **Inventory actions** card
+   (visible in live mode only). The card was added so the button isn't
+   hidden inside the pull log, which is only shown after a pull.
+2. `openAppendPicker()` shows the box picker (reuses the move picker
+   markup) with a text input and suggestions from the current inventory.
+3. User types or picks a box code and confirms. `runAppendWithBox(box)`
+   opens a file picker.
+4. User picks a scan CSV. The front end reads it and POSTs to
+   `/api/append?box=<box>` with the CSV as the body.
+5. `handleAppend` passes `{ boxOverride: box }` to `parseImport`, which
+   sets `canon.box = box` for every row before validation.
+6. `scan_batches` records the chosen box and the row count.
+
+**No auto-assignment.** The box is user-chosen, and may be anything
+(`081826-2`, `LOTR`, `new-pile`). It is not parsed, not validated, not
+inferred from a date.
+
 ### Endpoints
 
 - `PATCH /api/cards/move` — single move, `{tcgplayer_id, from_box, to_box}`.
@@ -196,6 +235,53 @@ A `📜` button on each row opens the history panel, which fetches
 
 The panel is an **inline popover**, not a modal, so you can see the row and
 its history at the same time. Close button, Escape, and click-outside.
+
+## Pull by order
+
+The pull-sheet flow is order-aware. Each pull sheet CSV can contain many
+orders, encoded in the `Order Quantity` column as `token:qty` pairs (pipe-
+separated). A single card can belong to multiple orders.
+
+### The workflow
+
+1. Load the pull sheet (`engine.loadPullSheet`). Each row gets `__orders`,
+   an array of `{ token, qty }`.
+2. `engine.processPullSheet()` runs the match against inventory and builds
+   `this.results`, one row per pull-sheet row. `__orders` is carried onto
+   each result.
+3. The **order picker** (rendered by `renderOrderPicker()`) lists every order
+   in the pull sheet, with card and unit counts. Checkboxes control
+   `ui.focusedOrders` (a Set of order tokens).
+4. `render()` calls `getFocusedResults()`, which filters `this.results` by
+   `focusedOrders`. Empty set = show everything.
+5. `printPickingList()` also uses `getFocusedResults()`, so the picking list
+   prints only the focused orders.
+6. Pulls are allocated to orders by `setPullQuantity()` (fill orders in
+   appearance order, then leftover to Unallocated). Each `pullLog` entry
+   carries `orderToken`.
+7. `updatePullLogUI()` groups the pull log by `orderToken`, with checkboxes
+   in `ui.selectedOrders`.
+8. `saveToServer()` filters `updates` and `events` by `selectedOrders`, so
+   only the chosen orders commit.
+9. On success, `removeCommittedPulls()` drops those entries from the local
+   pull log and `loadDefaultInventory()` refreshes from the server.
+
+### Key invariants
+
+- `__orders` is the source of truth for "which order does this pull belong
+  to," both before and after the pull. It is derived from the pull sheet
+  once, at load time.
+- `orderToken` on a `pullLog` entry is set at pull time, not re-derived
+  later. This is what made the order-aware commit accurate.
+- The commit filter is by *order token*, not by card or box. A row pulled
+  for two orders produces two events, each tagged with its order.
+
+### Known limitations
+
+- Pull-sheet dates are not captured (the CSV doesn't have them).
+- TCGplayer doesn't expose a public API for "look up the TCGplayer ID for
+  this card name/set/number." So `TCGplayer Id` is read-only in the edit
+  form and stays as the scanner's original guess even after corrections.
 
 ## API
 
