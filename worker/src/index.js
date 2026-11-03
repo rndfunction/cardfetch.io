@@ -98,9 +98,15 @@ function detectFormat(header) {
   const hasTitle = 'Title' in idx;
   const hasUnderscores = '_1' in idx || '_2' in idx || '_3' in idx;
   const hasWhere = 'Where is it?' in idx;
+  const hasProductName = 'Product Name' in idx;
+  const hasSetName = 'Set Name' in idx;
+  const hasNumber = 'Number' in idx;
 
   if (hasTitle && hasUnderscores) return { format: 'cardcastle', headerIndex: idx };
   if (hasWhere) return { format: 'tcgplayer', headerIndex: idx };
+  // Scan output: TCGplayer-style columns, no location, no trailing _1/_3.
+  // The box comes from the caller (append flow).
+  if (hasProductName && hasSetName && hasNumber) return { format: 'scan', headerIndex: idx };
   return { format: 'unknown', headerIndex: idx };
 }
 
@@ -116,7 +122,10 @@ function pickCell(row, idx, names) {
 
 function mapRow(row, fmt, idx) {
   const canon = {};
-  if (fmt === 'tcgplayer') {
+  // 'scan' uses the same column mapping as 'tcgplayer'. It just has no
+  // Where is it? column, so `box` comes back empty and is filled in by the
+  // caller's boxOverride before validation.
+  if (fmt === 'tcgplayer' || fmt === 'scan') {
     for (const key of Object.keys(CANON_NAMES)) {
       canon[key] = pickCell(row, idx, CANON_NAMES[key]);
     }
@@ -200,28 +209,6 @@ async function runBatched(db, statements) {
 
 // --- Box numbering -------------------------------------------------------
 
-function mmddyy(d) {
-  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(d.getUTCDate()).padStart(2, '0');
-  const yy = String(d.getUTCFullYear()).slice(-2);
-  return mm + dd + yy;
-}
-
-async function nextBoxNumber(db, dateStr) {
-  const res = await db.prepare("SELECT box FROM scan_batches WHERE box LIKE ?").bind(dateStr + '%').all();
-  const results = res.results || [];
-  let maxSuffix = 0;
-  for (const r of results) {
-    if (r.box === dateStr) { if (maxSuffix < 1) maxSuffix = 1; continue; }
-    const m = r.box.match(/^(\d{6})-(\d+)$/);
-    if (m && m[1] === dateStr) {
-      const n = parseInt(m[2], 10);
-      if (n > maxSuffix) maxSuffix = n;
-    }
-  }
-  if (maxSuffix === 0) return dateStr;
-  return dateStr + '-' + (maxSuffix + 1);
-}
 
 // --- Auth ---------------------------------------------------------------
 
@@ -237,7 +224,9 @@ async function checkWriteKey(req, env) {
 
 // --- Import pipeline -----------------------------------------------------
 
-function parseImport(body) {
+function parseImport(body, opts) {
+  const options = opts || {};
+  const boxOverride = options.boxOverride ? String(options.boxOverride).trim() : '';
   const parsed = parseCsv(body);
   if (parsed.length < 2) throw new Error('CSV has no data rows');
   const header = parsed[0];
@@ -253,6 +242,10 @@ function parseImport(body) {
     if (r.length < 2 || r.every(function (v) { return String(v).trim() === ''; })) continue;
     const canon = mapRow(r, det.format, det.headerIndex);
     if (!canon.tcgplayer_id) { canon.tcgplayer_id = synthId(canon); syntheticIds++; }
+    // A caller-provided box override takes precedence over whatever the CSV
+    // says. This is how "I scanned these into box X" is expressed: the scan
+    // file may have no box column at all, but the append knows the box.
+    if (boxOverride) canon.box = boxOverride;
     validateCanon(canon, i + 1);
     const key = String(canon.tcgplayer_id) + '|' + String(canon.box);
     if (!seen[key]) seen[key] = [];
@@ -322,20 +315,36 @@ async function handleInventoryPut(req, env) {
 
 async function handleAppend(req, env) {
   const text = await req.text();
+  const url = new URL(req.url);
+  // The caller supplies the box. There is no auto-assignment: the box is a
+  // human-chosen label (typically the date the batch was scanned, but any
+  // string is valid). If the box is supplied via ?box=, it overrides whatever
+  // the CSV says. If it isn't, the CSV must already contain a box on every row.
+  const boxOverride = (url.searchParams.get('box') || '').trim();
   let parsed;
-  try { parsed = parseImport(text); }
+  try { parsed = parseImport(text, { boxOverride: boxOverride }); }
   catch (e) { return Response.json({ ok: false, error: String(e.message || e) }, { status: 400 }); }
   if (parsed.rows.length === 0) return Response.json({ ok: false, error: 'No data rows' }, { status: 400 });
 
-  const db = env.DB.withSession('first-primary');
-  const today = new Date();
-  const box = await nextBoxNumber(db, mmddyy(today));
+  // Determine the batch label for scan_batches: the override if provided,
+  // otherwise the (single) box value found in the CSV. Mixed boxes without
+  // an override are allowed but recorded as "(mixed)".
+  let batchBox = boxOverride;
+  if (!batchBox) {
+    const boxes = {};
+    for (const r of parsed.rows) {
+      const b = String(r.canon.box || '').trim();
+      if (b) boxes[b] = (boxes[b] || 0) + 1;
+    }
+    const keys = Object.keys(boxes);
+    batchBox = keys.length === 1 ? keys[0] : (keys.length === 0 ? '' : '(mixed)');
+  }
 
+  const db = env.DB.withSession('first-primary');
+  const now = new Date();
   const statements = [];
   for (const r of parsed.rows) {
-    const c = r.canon;
-    c.box = box;
-    const params = canonToParams(c);
+    const params = canonToParams(r.canon);
     statements.push(
       db.prepare(
         'INSERT OR IGNORE INTO cards (' + DB_COLUMNS.join(',') + ') VALUES (' +
@@ -345,8 +354,15 @@ async function handleAppend(req, env) {
   }
   await runBatched(db, statements);
   await db.prepare('INSERT INTO scan_batches (box, scanned_on, row_count) VALUES (?, ?, ?)')
-    .bind(box, today.toISOString().slice(0, 10), parsed.rows.length).run();
-  return Response.json({ ok: true, box: box, rows: parsed.rows.length, format: parsed.format });
+    .bind(batchBox, now.toISOString().slice(0, 10), parsed.rows.length).run();
+  return Response.json({
+    ok: true,
+    box: batchBox,
+    rows: parsed.rows.length,
+    format: parsed.format,
+    syntheticIds: parsed.syntheticIds,
+    duplicatesSummed: parsed.duplicates.length
+  });
 }
 
 async function handleQuantitiesPatch(req, env) {
@@ -396,6 +412,90 @@ async function handleQuantitiesPatch(req, env) {
 
   await db.batch(statements);
   return Response.json({ ok: true, updated: updates.length, eventsRecorded: events.length });
+}
+
+// Edit a card's fields. TCGplayer Id is immutable (it's the historical
+// artifact of what the scanner thought the card was). All other canonical
+// fields are editable, including the box. One 'edit' event captures every
+// changed field in its metadata.
+// Body: { tcgplayer_id, from_box, changes: { "Product Name": "X", ... } }
+const EDITABLE_COLUMNS = {
+  'Product Line': 'product_line',
+  'Set Name': 'set_name',
+  'Product Name': 'product_name',
+  'Number': 'number',
+  'Rarity': 'rarity',
+  'Condition': 'condition',
+  'Total Quantity': 'total_quantity',
+  'Where is it?': 'box'
+};
+const EDITABLE_NUMERIC = new Set(['Total Quantity']);
+
+async function handleEdit(req, env) {
+  let body;
+  try { body = await req.json(); } catch (e) {
+    return Response.json({ ok: false, error: 'Body must be JSON' }, { status: 400 });
+  }
+  const { tcgplayer_id, from_box, changes } = body || {};
+  if (!tcgplayer_id || !from_box || !changes || typeof changes !== 'object') {
+    return Response.json({ ok: false, error: 'tcgplayer_id, from_box, and changes are required' }, { status: 400 });
+  }
+
+  const db = env.DB.withSession('first-primary');
+
+  // Read the current row.
+  const currentRes = await db.prepare(
+    'SELECT * FROM cards WHERE tcgplayer_id = ? AND box = ?'
+  ).bind(String(tcgplayer_id), String(from_box)).all();
+  const current = (currentRes.results && currentRes.results[0]) ? currentRes.results[0] : null;
+  if (!current) {
+    return Response.json({ ok: false, error: 'Card not found at the given tcgplayer_id and box' }, { status: 404 });
+  }
+
+  // Build the update and collect the field-level diff.
+  const setParts = [];
+  const setValues = [];
+  const fieldChanges = [];
+  for (const label of Object.keys(changes)) {
+    const col = EDITABLE_COLUMNS[label];
+    if (!col) continue; // unknown or read-only field
+    let next = changes[label];
+    if (EDITABLE_NUMERIC.has(label)) {
+      const n = Number(next);
+      next = Number.isFinite(n) ? n : null;
+    } else {
+      next = next === null || next === undefined ? '' : String(next);
+    }
+    const prev = current[col];
+    // Compare as strings so "3" and 3 agree.
+    const prevStr = prev === null || prev === undefined ? '' : String(prev);
+    const nextStr = next === null ? '' : String(next);
+    if (prevStr === nextStr) continue;
+    setParts.push(col + ' = ?');
+    setValues.push(next);
+    fieldChanges.push({ field: label, from: prevStr, to: nextStr });
+  }
+
+  if (setParts.length === 0) {
+    return Response.json({ ok: true, changed: 0, fields: [] });
+  }
+
+  const sql = 'UPDATE cards SET ' + setParts.join(', ') + ' WHERE tcgplayer_id = ? AND box = ?';
+  const bindArgs = setValues.concat([String(tcgplayer_id), String(from_box)]);
+  await db.prepare(sql).bind(...bindArgs).run();
+
+  await db.prepare(
+    'INSERT INTO events (tcgplayer_id, kind, box_from, box_to, quantity, source, metadata) ' +
+    'VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).bind(
+    String(tcgplayer_id), 'edit',
+    String(from_box),
+    changes['Where is it?'] !== undefined ? String(changes['Where is it?']) : null,
+    null, 'live',
+    JSON.stringify(fieldChanges)
+  ).run();
+
+  return Response.json({ ok: true, changed: fieldChanges.length, fields: fieldChanges });
 }
 
 async function handleBatches(env) {
@@ -566,6 +666,10 @@ async function handleRequest(req, env) {
     if (path === '/api/cards/move-bulk' && req.method === 'PATCH') {
       if (!(await checkWriteKey(req, env))) return withCors(new Response('Forbidden', { status: 403 }));
       return withCors(await handleMoveBulk(req, env));
+    }
+    if (path === '/api/cards/edit' && req.method === 'PATCH') {
+      if (!(await checkWriteKey(req, env))) return withCors(new Response('Forbidden', { status: 403 }));
+      return withCors(await handleEdit(req, env));
     }
     if (path === '/api/batches' && req.method === 'GET') return withCors(await handleBatches(env));
     if (path === '/api/events' && req.method === 'GET') return withCors(await handleEvents(env, url));

@@ -377,6 +377,17 @@
         <button type="button" id="bulkMoveBtn" style="padding:8px 16px; border:none; background:#6366f1; color:white; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">↔️ Move all to...</button>
         <button type="button" id="bulkClearBtn" style="padding:8px 16px; border:none; background:#4b5563; color:white; border-radius:6px; font-size:13px; cursor:pointer;">Clear</button>
     </div>
+    <div id="editPanel" style="display:none; position:fixed; z-index:1001; background:white; border:1px solid #d1d5db; border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,0.15); padding:16px; width:340px; max-height:80vh; overflow-y:auto; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <div style="font-size:13px; font-weight:600; color:#1a1a2e;" id="editTitle">✏️ Edit card</div>
+            <button type="button" id="editClose" style="border:none; background:none; font-size:18px; line-height:1; cursor:pointer; color:#6b7280;">×</button>
+        </div>
+        <div id="editForm"></div>
+        <div style="display:flex; gap:8px; margin-top:12px; justify-content:flex-end;">
+            <button type="button" id="editCancel" style="padding:6px 12px; border:1px solid #d1d5db; background:white; border-radius:6px; font-size:12px; cursor:pointer;">Cancel</button>
+            <button type="button" id="editSave" style="padding:6px 12px; border:none; background:#6366f1; color:white; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer;">Save</button>
+        </div>
+    </div>
     <div id="historyPanel" style="display:none; position:fixed; z-index:999; background:white; border:1px solid #d1d5db; border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,0.15); padding:14px; width:380px; max-height:70vh; overflow-y:auto; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
             <div style="font-size:13px; font-weight:600; color:#1a1a2e;" id="historyTitle">📜 History</div>
@@ -477,6 +488,15 @@
             </div>
             <!-- /setupPanel -->
 
+            <!-- Inventory actions (live mode only) -->
+            <div class="card no-print" id="inventoryActionsCard" style="display:none;">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                    <h4 style="margin:0;">📦 Inventory actions</h4>
+                    <button class="btn btn-primary btn-sm" id="appendBatchBtn" type="button">➕ Append scan batch</button>
+                    <span style="font-size:11px;color:#6b7280;">Upload a scan CSV and assign it to a box.</span>
+                </div>
+            </div>
+
             <!-- Advanced search form (always visible when inventory is loaded) -->
             <div class="card no-print" id="advancedSearchCard" style="display:none;">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
@@ -516,14 +536,12 @@
                         <button class="btn btn-success btn-sm" id="downloadUpdatedInventoryBtn" style="display:none;">📥 Download Updated Inventory</button>
                         <button class="btn btn-danger btn-sm" id="commitToInventoryBtn" style="display:none;">💾 Commit to inventory.csv</button>
                         <button class="btn btn-primary btn-sm" id="saveToServerBtn" style="display:none;">☁️ Save to server</button>
-                        <button class="btn btn-primary btn-sm" id="appendBatchBtn" style="display:none;">➕ Append scan batch</button>
                         <button class="btn btn-warning btn-sm" id="undoAllPullsBtn">↩️ Undo All Pulls</button>
                     </div>
                 </div>
                 
                 <div class="card">
                     <div class="toolbar no-print">
-                        <input type="text" class="search-box" id="searchBox" placeholder="🔍 Filter results...">
                         <select class="select-box" id="statusFilter">
                             <option value="all">All</option>
                             <option value="Found">✅ Found</option>
@@ -1281,6 +1299,9 @@
             advancedQuery(opts) {
                 const filters = opts || {};
                 if (!this.inventory || this.inventory.length === 0) return [];
+                // Ensure render() knows we're not in quick-lookup mode, so it
+                // displays Clean Name instead of Search Query in the name column.
+                this.isQuickLookup = false;
                 const name = String(filters.name || '').toLowerCase().trim();
                 const set = String(filters.set || '').toLowerCase().trim();
                 const box = String(filters.box || '').toLowerCase().trim();
@@ -1374,15 +1395,25 @@
                     let set = '';
                     let number = '';
                     let condition = '';
-                    
+                    let requestedQuantity = 1;
+
                     if (line.includes('|')) {
                         const parts = line.split('|').map(p => p.trim());
                         name = parts[0] || '';
-                        if (parts.length > 1) set = parts[1] || '';
-                        if (parts.length > 2) number = parts[2] || '';
-                        if (parts.length > 3) condition = parts[3] || '';
+                        const nonNumeric = [];
+                        for (let i = 1; i < parts.length; i++) {
+                            const p = parts[i];
+                            if (p !== '' && /^\d+$/.test(p)) {
+                                requestedQuantity = parseInt(p, 10);
+                            } else if (p !== '') {
+                                nonNumeric.push(p);
+                            }
+                        }
+                        if (nonNumeric.length > 0) set = nonNumeric[0];
+                        if (nonNumeric.length > 1) number = nonNumeric[1];
+                        if (nonNumeric.length > 2) condition = nonNumeric[2];
                     }
-                    
+
                     const cleanName = this.cleanProductName(name);
                     
                     if (!cleanName) continue;
@@ -1395,6 +1426,7 @@
                         'Set': set,
                         'Number': number,
                         'Condition': condition,
+                        'Quantity': requestedQuantity,
                         'Status': 'Not Found',
                         'Locations': [],
                         'Location Display': 'Not Found',
@@ -1413,6 +1445,12 @@
                         result['Match Type'] = bestMatch.matchType;
                         result['Match Score'] = bestMatch.score;
                         result['OriginalItem'] = bestMatch.item;
+                        // If the search query didn't specify these fields, pull
+                        // them from the actual inventory row so the table
+                        // columns aren't empty.
+                        if (!result['Set']) result['Set'] = this.findColumn(bestMatch.item, ['Set Name', 'Set', 'SetName']);
+                        if (!result['Number']) result['Number'] = this.findColumn(bestMatch.item, ['Number', 'Card Number', 'Card#']);
+                        if (!result['Condition']) result['Condition'] = this.findColumn(bestMatch.item, ['Condition', 'Cond']);
                         
                         const locationsWithQty = matches.map(m => {
                             const currentQty = this.getCurrentQuantity(m.item, m.item);
@@ -1678,7 +1716,7 @@
                 this.tableContainer = document.getElementById('tableContainer');
                 this.rowCount = document.getElementById('rowCount');
                 this.stockSummary = document.getElementById('stockSummary');
-                this.searchBox = document.getElementById('searchBox');
+
                 this.statusFilter = document.getElementById('statusFilter');
                 this.qtyFilter = document.getElementById('qtyFilter');
                 this.loading = document.getElementById('loading');
@@ -1748,7 +1786,6 @@
                     }
                 });
                 
-                this.searchBox.addEventListener('input', () => this.render());
                 this.statusFilter.addEventListener('change', () => this.render());
                 this.qtyFilter.addEventListener('change', () => this.render());
             }
@@ -1768,8 +1805,8 @@
                 const saveBtn = document.getElementById('saveToServerBtn');
                 if (saveBtn) saveBtn.style.display = '';
                 this.wireBulkBar();
-                const appendBtn = document.getElementById('appendBatchBtn');
-                if (appendBtn) appendBtn.style.display = '';
+                const invActionsCard = document.getElementById('inventoryActionsCard');
+                if (invActionsCard) invActionsCard.style.display = 'block';
 
             }
 
@@ -1882,6 +1919,13 @@
 
             appendScanBatch() {
                 if (!API_BASE) return;
+                // Step 1: ask which box. Step 2 (after confirm) is runAppendWithBox.
+                this.openAppendPicker();
+            }
+
+            runAppendWithBox(box) {
+                if (!API_BASE) return;
+                if (!box) { this.setStatus('error', 'Append cancelled', 'No box specified', '❌'); return; }
                 const key = this.getWriteKey();
                 if (!key) { this.setStatus('error', 'No write key', 'Write key is required to append', '❌'); return; }
                 const input = document.createElement('input');
@@ -1894,8 +1938,8 @@
                     reader.onload = () => {
                         const text = String(reader.result || '');
                         if (!text.trim()) { this.setStatus('error', 'Empty file', file.name, '❌'); return; }
-                        this.setStatus('loading', 'Appending ' + file.name + '...', API_BASE, '⏳');
-                        fetch(API_BASE + '/api/append', {
+                        this.setStatus('loading', 'Appending ' + file.name + ' to ' + box + '...', API_BASE, '⏳');
+                        fetch(API_BASE + '/api/append?box=' + encodeURIComponent(box), {
                             method: 'POST',
                             headers: { 'Content-Type': 'text/csv', 'X-Write-Key': key },
                             body: text
@@ -1903,7 +1947,11 @@
                             .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || ('HTTP ' + r.status)); }))
                             .then(data => {
                                 this.rememberWriteKey(key);
-                                this.setStatus('success', 'Appended as box ' + (data && data.box), (data && data.rows ? data.rows + ' rows' : ''), '✅');
+                                const bits = [];
+                                if (data && data.rows) bits.push(data.rows + ' rows');
+                                if (data && data.syntheticIds) bits.push(data.syntheticIds + ' synthetic IDs');
+                                if (data && data.duplicatesSummed) bits.push(data.duplicatesSummed + ' duplicates summed');
+                                this.setStatus('success', 'Appended to ' + (data && data.box || box), bits.join(', '), '✅');
                                 this.loadDefaultInventory();
                             })
                             .catch(err => {
@@ -2526,6 +2574,35 @@
                     + (wroteInPlace ? '' : ' (Saved as a download -- replace ' + DEFAULT_INVENTORY_FILE + ' in the app folder.)'));
             }
 
+            openAppendPicker() {
+                // Reuse the move-picker popover element, but for a different job:
+                // choosing the box for a scan that's about to be uploaded.
+                if (!this.movePicker) {
+                    this.movePicker = document.getElementById('movePicker');
+                    this.movePickerInput = document.getElementById('movePickerInput');
+                    this.movePickerSuggestions = document.getElementById('movePickerSuggestions');
+                    document.getElementById('movePickerCancel').addEventListener('click', () => this.closeMovePicker());
+                    document.getElementById('movePickerConfirm').addEventListener('click', () => this.confirmMovePicker());
+                    this.movePickerInput.addEventListener('input', () => this.renderMoveSuggestions());
+                    this.movePickerInput.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); this.confirmMovePicker(); }
+                        if (e.key === 'Escape') { e.preventDefault(); this.closeMovePicker(); }
+                    });
+                }
+                this.movePickerCtx = { mode: 'append', bulk: false, reason: 'append' };
+                const title = document.getElementById('movePickerTitle');
+                const subtitle = document.getElementById('movePickerSubtitle');
+                title.textContent = '📥 Append scan batch';
+                subtitle.textContent = 'Which box is this scan going into?';
+                this.movePickerInput.value = '';
+                this.movePickerInput.placeholder = 'Box code (e.g. 110526-1)';
+                this.renderMoveSuggestions();
+                this.movePicker.style.left = '20px';
+                this.movePicker.style.top = '120px';
+                this.movePicker.style.display = 'block';
+                setTimeout(() => this.movePickerInput.focus(), 10);
+            }
+
             async openHistory(resultIndex) {
                 const row = this.results && this.results[resultIndex];
                 if (!row) return;
@@ -2586,6 +2663,16 @@
                         } else if (e.kind === 'move') {
                             detail = 'Moved from ' + escapeHtml(e.box_from || '?') + ' to ' + escapeHtml(e.box_to || '?');
                             try { const meta = e.metadata ? JSON.parse(e.metadata) : null; if (meta && meta.reason) detail += ' — ' + escapeHtml(meta.reason); } catch (_) {}
+                        } else if (e.kind === 'edit') {
+                            let fields = [];
+                            try { fields = e.metadata ? JSON.parse(e.metadata) : []; } catch (_) { fields = []; }
+                            if (Array.isArray(fields) && fields.length > 0) {
+                                detail = fields.map(function (f) {
+                                    return escapeHtml(f.field) + ': ' + escapeHtml(f.from || '(empty)') + ' &rarr; ' + escapeHtml(f.to || '(empty)');
+                                }).join('<br>');
+                            } else {
+                                detail = 'Edited';
+                            }
                         } else {
                             detail = e.kind + ': ' + (e.box_from || '?') + ' → ' + (e.box_to || '?');
                         }
@@ -2800,6 +2887,109 @@
                 }
             }
 
+            openEditForm(resultIndex) {
+                const row = this.results && this.results[resultIndex];
+                if (!row) return;
+                const item = row.OriginalItem || null;
+                if (!item) {
+                    this.setStatus('error', 'Edit unavailable', 'No inventory row for this result', '❌');
+                    return;
+                }
+                const get = (k) => item[k] === undefined || item[k] === null ? '' : String(item[k]);
+                const tcgId = get('TCGplayer Id') || get('TCGplayerId') || get('Id');
+                const fromBox = get('Where is it?') || get('Location') || get('Box Location');
+                const fields = [
+                    { key: 'Product Line', label: 'Product Line' },
+                    { key: 'Set Name', label: 'Set Name' },
+                    { key: 'Product Name', label: 'Product Name' },
+                    { key: 'Number', label: 'Number' },
+                    { key: 'Rarity', label: 'Rarity' },
+                    { key: 'Condition', label: 'Condition' },
+                    { key: 'Total Quantity', label: 'Total Quantity' },
+                    { key: 'Where is it?', label: 'Where is it?' }
+                ];
+                this.editCtx = { tcgplayerId: String(tcgId), fromBox: String(fromBox), original: {} };
+                let html = '<div style="font-size:11px;color:#6b7280;margin-bottom:8px;">TCGplayer Id: ' + escapeHtml(tcgId) + ' (read-only)</div>';
+                for (const f of fields) {
+                    const v = get(f.key);
+                    this.editCtx.original[f.key] = v;
+                    const isNumber = f.key === 'Total Quantity';
+                    html += '<label style="display:block;font-size:11px;color:#374151;margin-top:6px;">' + escapeHtml(f.label) +
+                        '<input type="' + (isNumber ? 'number' : 'text') + '" data-edit-key="' + escapeHtml(f.key) + '" value="' + escapeHtml(v) + '" ' +
+                        'style="display:block;width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;margin-top:2px;"></label>';
+                }
+                document.getElementById('editForm').innerHTML = html;
+                document.getElementById('editTitle').textContent = '✏️ Edit ' + (row['Pull Sheet Name'] || row['Clean Name'] || 'card');
+                const panel = document.getElementById('editPanel');
+                panel.style.left = '20px';
+                panel.style.top = '120px';
+                panel.style.display = 'block';
+                if (!this._editWired) {
+                    document.getElementById('editClose').addEventListener('click', () => this.closeEditForm());
+                    document.getElementById('editCancel').addEventListener('click', () => this.closeEditForm());
+                    document.getElementById('editSave').addEventListener('click', () => this.saveEdit());
+                    this._editWired = true;
+                }
+            }
+
+            closeEditForm() {
+                const panel = document.getElementById('editPanel');
+                if (panel) panel.style.display = 'none';
+                this.editCtx = null;
+            }
+
+            async saveEdit() {
+                if (!this.editCtx) return;
+                if (!API_BASE) { this.setStatus('error', 'Edit unavailable', 'Server not connected', '❌'); return; }
+                const key = this.getWriteKey();
+                if (!key) { this.setStatus('error', 'No write key', 'Write key is required', '❌'); return; }
+                const inputs = document.querySelectorAll('#editForm input[data-edit-key]');
+                const changes = {};
+                inputs.forEach((el) => {
+                    const k = el.getAttribute('data-edit-key');
+                    const v = el.value;
+                    if (this.editCtx.original[k] !== v) {
+                        changes[k] = v;
+                    }
+                });
+                if (Object.keys(changes).length === 0) {
+                    this.setStatus('info', 'No changes', 'Form fields unchanged', 'ℹ️');
+                    this.closeEditForm();
+                    return;
+                }
+                this.setStatus('loading', 'Saving changes...', Object.keys(changes).length + ' field(s)', '⏳');
+                try {
+                    const resp = await fetch(API_BASE + '/api/cards/edit', {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json', 'X-Write-Key': key },
+                        body: JSON.stringify({
+                            tcgplayer_id: this.editCtx.tcgplayerId,
+                            from_box: this.editCtx.fromBox,
+                            changes: changes
+                        })
+                    });
+                    if (!resp.ok) {
+                        const text = await resp.text();
+                        if (/403|Forbidden/i.test(text)) this.forgetWriteKey();
+                        this.setStatus('error', 'Edit failed', text, '❌');
+                        return;
+                    }
+                    const data = await resp.json();
+                    this.rememberWriteKey(key);
+                    this.closeEditForm();
+                    this.setStatus('success', 'Saved', (data && data.changed ? data.changed + ' field(s) changed' : ''), '✅');
+                    if (this.hintCache && this.hintCache[String(this.editCtx ? this.editCtx.tcgplayerId : '')]) delete this.hintCache[String(this.editCtx.tcgplayerId)];
+                    // Refresh the current view so the edits show immediately.
+                    if (this.quickLookupInput && this.quickLookupInput.value.trim()) {
+                        setTimeout(() => { try { this.findLocations(); } catch (e) {} }, 100);
+                    } else {
+                        setTimeout(() => { try { this.runAdvancedSearch(); } catch (e) {} }, 100);
+                    }
+                } catch (e) {
+                    this.setStatus('error', 'Edit failed', String(e && e.message || e), '❌');
+                }
+            }
+
             wireBulkBar() {
                 if (this._bulkWired) return;
                 this._bulkWired = true;
@@ -2935,6 +3125,11 @@
                 const toBox = (this.movePickerInput.value || '').trim();
                 if (!toBox) return;
                 const ctx = this.movePickerCtx;
+                if (ctx.mode === 'append') {
+                    this.closeMovePicker();
+                    this.runAppendWithBox(toBox);
+                    return;
+                }
                 if (!ctx.bulk && toBox === ctx.fromBox) {
                     this.setStatus('info', 'No change', 'Same box', 'ℹ️');
                     this.closeMovePicker();
@@ -3065,11 +3260,10 @@
             render() {
                 if (!this.results || this.results.length === 0) return;
                 
-                const search = this.searchBox.value.toLowerCase();
                 const status = this.statusFilter.value;
                 const qtyFilter = this.qtyFilter.value;
                 const isQuick = this.engine.isQuickLookup;
-                
+
                 let filtered = this.results;
                 if (status !== 'all') {
                     if (status === 'Pulled') {
@@ -3082,11 +3276,6 @@
                     r['Stock Status'] === STOCK.LOW || r['Stock Status'] === STOCK.OUT
                 );
                 else if (qtyFilter === 'ok') filtered = filtered.filter(r => r['Stock Status'] === STOCK.IN_STOCK);
-                if (search) filtered = filtered.filter(r => 
-                    String(r['Pull Sheet Name'] || r['Search Query'] || '').toLowerCase().includes(search) ||
-                    String(r['Location Display']).toLowerCase().includes(search) ||
-                    String(r['Clean Name']).toLowerCase().includes(search)
-                );
                 
                 const stats = this.engine.generateStats();
                 if (stats) {
@@ -3161,7 +3350,6 @@
                         const locItems = row['Locations'].map((loc, idx) => {
                             const isDepleted = loc.quantity <= 0;
                             const qtyText = loc.quantity > 0 ? ` (${loc.quantity} left)` : ' (empty)';
-                            const condHint = loc.condition ? ` (${escapeHtml(loc.condition)})` : '';
                             const isRecommended = idx === recommendedIdx;
                             // How many are currently being pulled from THIS location.
                             const pulledHere = (loc.originalQty || 0) - loc.quantity;
@@ -3194,7 +3382,7 @@
                                     `</span>`;
                             }
                             return `<div class="location-item" style="margin-bottom:4px;">
-                                <span class="${badgeClass}">${escapeHtml(loc.location)}${qtyText}${condHint}</span>
+                                <span class="${badgeClass}">${escapeHtml(loc.location)}${qtyText}</span>
                                 ${isRecommended && !row['IsPulled'] ? '⭐' : ''}
                                 ${row['IsPulled'] && pulledHere > 0 ? '📦' : ''}
                                 ${controls}
@@ -3256,6 +3444,7 @@
                         <td style="font-size:11px;color:#6b7280;">
                             ${matchDisplay}
                             <button class="btn btn-secondary btn-sm" title="History of this card" style="padding:0 5px;font-size:11px;line-height:1;margin-left:4px;" onclick="window.ui.openHistory(${resultIndex})">📜</button>
+                            <button class="btn btn-secondary btn-sm" title="Edit this card" style="padding:0 5px;font-size:11px;line-height:1;margin-left:4px;" onclick="window.ui.openEditForm(${resultIndex})">✏️</button>
                         </td>
                         <td>${row['Total Available'] || row['Available Qty'] || 0}</td>
                         <td>${stockDisplay}</td>
@@ -3273,41 +3462,7 @@
             // used for data-card-id and the badge onclick), then pulls from the
             // chosen location. Prompts for quantity only when it is genuinely
             // ambiguous (more than one unit available AND more than one needed).
-            pullFromLocation(resultIndex, index) {
-                const cardResult = this.results[resultIndex];
-                if (!cardResult) return;
-                if (cardResult['Status'] !== MATCH.FOUND) {
-                    alert('This card was not matched exactly and cannot be pulled.');
-                    return;
-                }
-                if (!cardResult.Locations || index >= cardResult.Locations.length) return;
 
-                const location = cardResult.Locations[index];
-                if (location.quantity <= 0) {
-                    alert('This location is depleted.');
-                    return;
-                }
-
-                const needed = cardResult.Quantity || 1;
-                const qty = Math.min(location.quantity, needed);
-                if (qty <= 0) return;
-
-                if (location.quantity > 1 && needed > 1) {
-                    const userQty = prompt(
-                        `How many to pull from ${location.location}? (Available: ${location.quantity}, Needed: ${needed})`,
-                        qty
-                    );
-                    if (userQty === null) return;
-                    const pullQty = parseInt(userQty);
-                    if (isNaN(pullQty) || pullQty <= 0) {
-                        alert('Invalid quantity.');
-                        return;
-                    }
-                    this.handlePull(cardResult, index, pullQty);
-                } else {
-                    this.handlePull(cardResult, index, qty);
-                }
-            }
 
 
             
@@ -3595,7 +3750,6 @@
                 this.statsRow.innerHTML = '';
                 this.rowCount.textContent = '';
                 this.stockSummary.textContent = '';
-                this.searchBox.value = '';
                 this.statusFilter.value = 'all';
                 this.qtyFilter.value = 'all';
                 
