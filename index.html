@@ -497,6 +497,15 @@
                 </div>
             </div>
 
+            <!-- Pull sheet order picker (shown when a pull sheet is loaded) -->
+            <div class="card no-print" id="orderPickerCard" style="display:none;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                    <h4 style="margin:0;">📋 Orders in this pull sheet</h4>
+                    <button type="button" id="showAllOrdersBtn" class="btn btn-secondary btn-sm">Clear Focus</button>
+                </div>
+                <div id="orderPickerList" style="max-height:200px; overflow-y:auto; font-size:13px;"></div>
+            </div>
+
             <!-- Advanced search form (always visible when inventory is loaded) -->
             <div class="card no-print" id="advancedSearchCard" style="display:none;">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
@@ -535,7 +544,9 @@
                     <div class="action-buttons">
                         <button class="btn btn-success btn-sm" id="downloadUpdatedInventoryBtn" style="display:none;">📥 Download Updated Inventory</button>
                         <button class="btn btn-danger btn-sm" id="commitToInventoryBtn" style="display:none;">💾 Commit to inventory.csv</button>
-                        <button class="btn btn-primary btn-sm" id="saveToServerBtn" style="display:none;">☁️ Save to server</button>
+                        <button class="btn btn-secondary btn-sm" id="selectAllOrdersBtn" type="button">✓ Select All</button>
+                        <button class="btn btn-secondary btn-sm" id="selectNoneOrdersBtn" type="button">✗ Select None</button>
+                        <button class="btn btn-primary btn-sm" id="saveToServerBtn" style="display:none;">☁️ Commit Selected</button>
                         <button class="btn btn-warning btn-sm" id="undoAllPullsBtn">↩️ Undo All Pulls</button>
                     </div>
                 </div>
@@ -894,9 +905,9 @@
             return row && typeof row === 'object' ? rowIds.get(row) || null : null;
         }
         
-        function recordPull(cardName, location, quantity, pulledFrom, originalQty) {
+        function recordPull(cardName, location, quantity, pulledFrom, originalQty, orderToken) {
             const rowId = assignRowId(pulledFrom) || 'unknown';
-
+            
             const entry = {
                 id: nextPullId++,
                 timestamp: new Date().toLocaleString(),
@@ -905,7 +916,8 @@
                 quantity: quantity,
                 pulledFrom: pulledFrom,
                 originalQty: originalQty,
-                newQty: originalQty - quantity
+                newQty: originalQty - quantity,
+                orderToken: orderToken || null
             };
             pullLog.push(entry);
 
@@ -1527,7 +1539,8 @@
                             'Stock Status': 'No Stock',
                             'MultipleLocations': false,
                             'OriginalItem': null,
-                            'IsPulled': false
+                            'IsPulled': false,
+                            '__orders': item.__orders || []
                         };
                         this.results.push(result);
                         continue;
@@ -1560,7 +1573,8 @@
                         'MultipleLocations': false,
                         'OriginalItem': null,
                         'IdentityWarning': '',
-                        'IsPulled': false
+                        'IsPulled': false,
+                        '__orders': item.__orders || []
                     };
                     
                     if (matches.length > 0) {
@@ -1773,6 +1787,21 @@
                 this.commitToInventoryBtn.addEventListener('click', () => this.commitToInventory());
                 const saveBtn = document.getElementById('saveToServerBtn');
                 if (saveBtn) saveBtn.addEventListener('click', () => this.saveToServer());
+                const selectAllBtn = document.getElementById('selectAllOrdersBtn');
+                if (selectAllBtn) selectAllBtn.addEventListener('click', () => {
+                    if (!this.selectedOrders) this.selectedOrders = new Set();
+                    this.selectedOrders.clear();
+                    if (this._knownOrderKeys) {
+                        for (const k of this._knownOrderKeys) this.selectedOrders.add(k);
+                    }
+                    this.updatePullLogUI();
+                });
+                const selectNoneBtn = document.getElementById('selectNoneOrdersBtn');
+                if (selectNoneBtn) selectNoneBtn.addEventListener('click', () => {
+                    if (!this.selectedOrders) this.selectedOrders = new Set();
+                    this.selectedOrders.clear();
+                    this.updatePullLogUI();
+                });
                 const appendBtn = document.getElementById('appendBatchBtn');
                 if (appendBtn) appendBtn.addEventListener('click', () => this.appendScanBatch());
                 this.applyApiMode();
@@ -1790,6 +1819,87 @@
                 this.qtyFilter.addEventListener('change', () => this.render());
             }
             
+            renderOrderPicker() {
+                const card = document.getElementById('orderPickerCard');
+                const list = document.getElementById('orderPickerList');
+                if (!card || !list) return;
+                if (!this.engine || !this.engine.filteredPullSheet || this.engine.filteredPullSheet.length === 0) {
+                    card.style.display = 'none';
+                    return;
+                }
+
+                card.style.display = 'block';
+                if (!this.focusedOrders) this.focusedOrders = new Set();
+
+                // Aggregate order stats from pull sheet rows.
+                const stats = {};
+                for (const row of this.engine.filteredPullSheet) {
+                    const orders = row.__orders || [];
+                    const qty = parseInt(this.engine.findColumn(row, ['Quantity', 'Qty'])) || 1;
+                    for (const o of orders) {
+                        if (!stats[o.token]) stats[o.token] = { cards: 0, units: 0 };
+                        stats[o.token].cards += 1;
+                        stats[o.token].units += Math.min(o.qty, qty);
+                    }
+                }
+
+                const orderKeys = Object.keys(stats).sort();
+                if (orderKeys.length === 0) {
+                    list.innerHTML = '<div style="color:#6b7280;font-style:italic;padding:8px 0;">No orders found in this pull sheet.</div>';
+                    return;
+                }
+
+                // Explain the interaction once, at the top.
+                let html = '<div style="font-size:11px;color:#6b7280;margin-bottom:8px;">Check orders to focus the picking list. Leave all unchecked to show everything.</div>';
+                html += '<div style="display:grid;grid-template-columns:auto 1fr auto;gap:6px 12px;align-items:center;">';
+                html += '<div style="font-weight:600;font-size:11px;color:#6b7280;">Focus</div>';
+                html += '<div style="font-weight:600;font-size:11px;color:#6b7280;">Order</div>';
+                html += '<div style="font-weight:600;font-size:11px;color:#6b7280;text-align:right;">Cards / Units</div>';
+                const self = this;
+                for (const token of orderKeys) {
+                    const s = stats[token];
+                    const checked = this.focusedOrders.has(token) ? 'checked' : '';
+                    html += '<input type="checkbox" data-order-pick="' + escapeHtml(token) + '" ' + checked + ' style="cursor:pointer;">';
+                    html += '<label style="cursor:pointer;font-family:monospace;font-size:12px;">' + escapeHtml(token) + '</label>';
+                    html += '<span style="text-align:right;color:#6b7280;">' + s.cards + ' card' + (s.cards === 1 ? '' : 's') + ' / ' + s.units + ' unit' + (s.units === 1 ? '' : 's') + '</span>';
+                }
+                html += '</div>';
+                list.innerHTML = html;
+
+                list.querySelectorAll('input[data-order-pick]').forEach(function (cb) {
+                    cb.addEventListener('change', function () {
+                        const token = cb.getAttribute('data-order-pick');
+                        if (cb.checked) self.focusedOrders.add(token);
+                        else self.focusedOrders.delete(token);
+                        self.render();
+                    });
+                });
+
+                const clearBtn = document.getElementById('showAllOrdersBtn');
+                if (clearBtn && !clearBtn._wired) {
+                    clearBtn._wired = true;
+                    clearBtn.addEventListener('click', () => {
+                        self.focusedOrders.clear();
+                        self.renderOrderPicker();
+                        self.render();
+                    });
+                }
+            }
+
+            getFocusedResults() {
+                // If no focus is set, show everything.
+                if (!this.focusedOrders || this.focusedOrders.size === 0) return this.results || [];
+                const tokens = this.focusedOrders;
+                return (this.results || []).filter(function (r) {
+                    if (!r.__orders || r.__orders.length === 0) return false;
+                    for (const o of r.__orders) {
+                        if (tokens.has(o.token)) return true;
+                    }
+                    return false;
+                });
+            }
+
+
             applyApiMode() {
                 // In static mode (no API_BASE), show the HD-bound buttons.
                 // In live mode, hide them; the server buttons are the truth.
@@ -1829,46 +1939,29 @@
 
 
             buildPullEvents(updatedRows) {
-                // For each row that has had pulls recorded, emit one event per
-                // order token (up to the pulled quantity), plus any remainder
-                // as an "unallocated" pull with no order token.
+                // Read the actual allocation from the pullLog entries. Each entry
+                // now carries orderToken (set by setPullQuantity), so we don't
+                // need to guess which order a pull belonged to.
                 const events = [];
+                const seen = {};
                 for (const r of updatedRows) {
-                    // Use the __rowId that getUpdatedInventory attached to the copy.
-                    // Falling back to getRowId(r) is a safety net for rows that
-                    // weren't modified (no __rowId set).
                     const rowId = r.__rowId || getRowId(r);
                     const mod = rowId ? inventoryModifications[rowId] : null;
                     if (!mod) continue;
-                    const totalPulled = mod.pulled.reduce((s, p) => s + (p.quantity || 0), 0);
-                    if (totalPulled <= 0) continue;
-
                     const id = r['TCGplayer Id'] || r['TCGplayerId'] || r['Id'];
                     const box = r['Where is it?'] || r['Location'] || r['Box Location'];
                     if (!id || !box) continue;
 
-                    const orders = Array.isArray(r.__orders) ? r.__orders : [];
-                    let remaining = totalPulled;
-                    for (const o of orders) {
-                        if (remaining <= 0) break;
-                        const take = Math.min(o.qty || 1, remaining);
+                    for (const p of mod.pulled) {
+                        const key = String(id) + '|' + (p.orderToken || '') + '|' + String(p.quantity);
+                        if (seen[key]) continue;
+                        seen[key] = true;
                         events.push({
                             tcgplayer_id: String(id),
                             kind: 'pull',
                             box_from: String(box),
-                            order_token: o.token,
-                            quantity: take,
-                            source: 'live'
-                        });
-                        remaining -= take;
-                    }
-                    if (remaining > 0) {
-                        events.push({
-                            tcgplayer_id: String(id),
-                            kind: 'pull',
-                            box_from: String(box),
-                            order_token: null,
-                            quantity: remaining,
+                            order_token: p.orderToken || null,
+                            quantity: p.quantity,
                             source: 'live'
                         });
                     }
@@ -1880,23 +1973,63 @@
                 if (!API_BASE) return;
                 const key = this.getWriteKey();
                 if (!key) { this.setStatus('error', 'No write key', 'Write key is required to save', '❌'); return; }
-                const updated = getUpdatedInventory(this.engine.inventory);
-                if (!updated || updated.length === 0) { this.setStatus('error', 'No inventory to save', '', '❌'); return; }
-                const events = this.buildPullEvents(updated);
-                // Build the updates list. Send every row: quantities may be unchanged,
-                // which is harmless (UPDATE sets the same value). Keeps the logic simple.
-                const updates = [];
-                for (const r of updated) {
-                    const id = r['TCGplayer Id'] || r['TCGplayerId'] || r['Id'];
-                    const box = r['Where is it?'] || r['Location'] || r['Box Location'];
-                    if (!id || !box) continue;
-                    const qtyRaw = (r['Total Quantity'] !== undefined) ? r['Total Quantity']
-                                 : (r['Quantity'] !== undefined ? r['Quantity'] : r['Qty']);
-                    const qty = parseInt(String(qtyRaw == null ? '' : qtyRaw).replace(/[^0-9-]/g, ''));
-                    updates.push({ tcgplayer_id: String(id), box: String(box), total_quantity: isNaN(qty) ? 0 : qty });
+
+                const selectedTokens = this.getSelectedOrderTokens();
+                if (selectedTokens.size === 0) {
+                    this.setStatus('error', 'Nothing selected', 'Check at least one order to commit', '❌');
+                    return;
                 }
-                if (updates.length === 0) { this.setStatus('error', 'No valid rows to save', '', '❌'); return; }
-                this.setStatus('loading', 'Saving to server...', API_BASE + ' (' + updates.length + ' rows)', '⏳');
+
+                // Build a set of (rowId, orderToken) pairs to commit.
+                const allEvents = [];
+                for (const e of pullLog) {
+                    allEvents.push(e);
+                }
+                const selectedEvents = allEvents.filter(e => selectedTokens.has(e.orderToken || null));
+
+                if (selectedEvents.length === 0) {
+                    this.setStatus('error', 'Nothing to commit', 'No pulls match the selected orders', '❌');
+                    return;
+                }
+
+                // Build updates: for each affected row, subtract ONLY the
+                // selected pulls from its original quantity.
+                const updatesByRow = {};
+                for (const e of selectedEvents) {
+                    const item = e.pulledFrom;
+                    if (!item) continue;
+                    const id = item['TCGplayer Id'] || item['TCGplayerId'] || item['Id'];
+                    const box = item['Where is it?'] || item['Location'] || item['Box Location'];
+                    if (!id || !box) continue;
+                    const key2 = String(id) + '|' + String(box);
+                    if (!updatesByRow[key2]) {
+                        const stockCol = (typeof getStockColumn === 'function') ? getStockColumn(item) : null;
+                        const original = stockCol ? parseInt(item[stockCol] || 0) : 0;
+                        updatesByRow[key2] = { id: String(id), box: String(box), originalQty: original, pulled: 0 };
+                    }
+                    updatesByRow[key2].pulled += e.quantity;
+                }
+
+                const updates = Object.values(updatesByRow).map(u => ({
+                    tcgplayer_id: u.id,
+                    box: u.box,
+                    total_quantity: Math.max(0, u.originalQty - u.pulled)
+                }));
+                const events = selectedEvents.map(e => ({
+                    tcgplayer_id: (function () {
+                        const item = e.pulledFrom;
+                        return item ? String(item['TCGplayer Id'] || item['TCGplayerId'] || item['Id']) : '';
+                    })(),
+                    kind: 'pull',
+                    box_from: e.location,
+                    order_token: e.orderToken || null,
+                    quantity: e.quantity,
+                    source: 'live'
+                })).filter(e => e.tcgplayer_id);
+
+                if (updates.length === 0) { this.setStatus('error', 'No valid updates', '', '❌'); return; }
+                this.setStatus('loading', 'Committing ' + selectedEvents.length + ' pull(s)...', updates.length + ' rows updated', '⏳');
+
                 fetch(API_BASE + '/api/quantities', {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json', 'X-Write-Key': key },
@@ -1905,10 +2038,14 @@
                     .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || ('HTTP ' + r.status)); }))
                     .then(data => {
                         this.rememberWriteKey(key);
+                        // Remove committed pulls from the local state.
+                        this.removeCommittedPulls(selectedTokens);
                         const parts = [];
                         if (data && data.updated) parts.push(data.updated + ' rows');
                         if (data && data.eventsRecorded) parts.push(data.eventsRecorded + ' events');
-                        this.setStatus('success', 'Saved to server', parts.join(', '), '✅');
+                        this.setStatus('success', 'Committed', parts.join(', '), '✅');
+                        // Refresh from server so displayed quantities reflect the commit.
+                        this.loadDefaultInventory();
                     })
                     .catch(err => {
                         const msg = String(err && err.message || err);
@@ -2104,10 +2241,12 @@
                 try {
                     if (hasPullSheet) {
                         this.results = this.engine.processPullSheet();
+                        this.focusedOrders = null;
+                        this.renderOrderPicker();
                     } else if (hasQuickLookup) {
                         this.results = this.engine.quickLookup(quickText);
                     }
-                    
+
                     this.render();
                     this.resultsSection.classList.remove('hidden');
                     this.updatePullLogUI();
@@ -2346,14 +2485,40 @@
                     const add = Math.min(toAdd, available);
                     if (add <= 0) return false;
 
-                    const entry = recordPull(
-                        cardResult['Pull Sheet Name'] || cardResult['Clean Name'] || cardResult['Search Query'] || '',
-                        loc.location,
-                        add,
-                        loc.itemRef,
-                        loc.originalQty || loc.quantity
-                    );
-                    loc.quantity -= add;
+                    const cardName = cardResult['Pull Sheet Name'] || cardResult['Clean Name'] || cardResult['Search Query'] || '';
+                    
+                    // Allocation logic: if the card has orders (from a pull sheet),
+                    // fill those orders first, in order of appearance, then
+                    // any leftover goes to "Unallocated" (null order token).
+                    const orders = cardResult.__orders || [];
+                    const pulledByOrder = {};
+                    for (const e of pullLog) {
+                        if (e.pulledFrom === loc.itemRef && e.orderToken) {
+                            pulledByOrder[e.orderToken] = (pulledByOrder[e.orderToken] || 0) + e.quantity;
+                        }
+                    }
+
+                    let remainingToAdd = add;
+
+                    // 1. Try to fulfill specific orders.
+                    for (const order of orders) {
+                        if (remainingToAdd <= 0) break;
+                        const alreadyPulled = pulledByOrder[order.token] || 0;
+                        const neededForOrder = order.qty - alreadyPulled;
+                        if (neededForOrder <= 0) continue;
+
+                        const take = Math.min(neededForOrder, remainingToAdd);
+                        const entry = recordPull(cardName, loc.location, take, loc.itemRef, loc.originalQty || loc.quantity, order.token);
+                        pulledByOrder[order.token] = (pulledByOrder[order.token] || 0) + take;
+                        loc.quantity -= take;
+                        remainingToAdd -= take;
+                    }
+
+                    // 2. Any leftover is unallocated.
+                    if (remainingToAdd > 0) {
+                        const entry = recordPull(cardName, loc.location, remainingToAdd, loc.itemRef, loc.originalQty || loc.quantity, null);
+                        loc.quantity -= remainingToAdd;
+                    }
                 }
 
                 this.recomputeCardState(cardResult);
@@ -2444,32 +2609,133 @@
                 this.pullLogCard.style.display = 'block';
                 const totalUnits = pullLog.reduce((sum, e) => sum + e.quantity, 0);
                 this.pullLogCount.textContent = `${totalUnits} units pulled`;
-                
+
+                if (!this.selectedOrders) this.selectedOrders = new Set();
+
+                // Group entries by orderToken (null becomes '__unallocated__').
+                const groups = {};
+                for (let i = 0; i < pullLog.length; i++) {
+                    const e = pullLog[i];
+                    const key = e.orderToken || '__unallocated__';
+                    if (!groups[key]) groups[key] = { entries: [], units: 0 };
+                    groups[key].entries.push({ entry: e, index: i });
+                    groups[key].units += e.quantity;
+                }
+                // Auto-select any new order keys (default-on behavior).
+                for (const key of Object.keys(groups)) {
+                    if (!this.selectedOrders.has(key) && !this._knownOrderKeys || !this._knownOrderKeys.has(key)) {
+                        this.selectedOrders.add(key);
+                    }
+                }
+                this._knownOrderKeys = new Set(Object.keys(groups));
+
                 // Per-box summary
-                const groups = this.summarizePullLog();
+                const boxSummary = this.summarizePullLog();
                 let sumHtml = '<div style="font-weight:600;margin-bottom:6px;">📦 Units per box</div>';
-                sumHtml += groups.map(g =>
+                sumHtml += boxSummary.map(g =>
                     `<div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:2px 0;">` +
                     `<span>${escapeHtml(g.location)}</span>` +
                     `<span><strong>${g.units}</strong> units <span style="color:#6b7280;">(${g.cardCount} cards)</span></span>` +
                     `</div>`
                 ).join('');
                 this.pullLogSummary.innerHTML = sumHtml;
-                
+
+                // Per-order sections.
                 let html = '';
-                for (let i = pullLog.length - 1; i >= 0; i--) {
-                    const entry = pullLog[i];
-                    html += `
-                        <div class="log-entry">
-                            <span><span class="log-card">${escapeHtml(entry.cardName)}</span> → <span class="log-location">${escapeHtml(entry.location)}</span></span>
-                            <span style="display:flex;align-items:center;gap:8px;">
-                                <span class="log-qty">Qty: ${entry.quantity}</span>
-                                <button class="btn btn-danger btn-sm" title="Undo this pull" style="padding:0 8px;font-size:13px;line-height:1.4;" onclick="window.ui.removePullEntry(${i})">✕</button>
-                            </span>
-                        </div>
-                    `;
+                const orderKeys = Object.keys(groups).sort();
+                for (const key of orderKeys) {
+                    const g = groups[key];
+                    const label = key === '__unallocated__' ? 'Unallocated (manual pulls)' : 'Order ' + key;
+                    const isChecked = this.selectedOrders.has(key);
+                    html += '<div style="margin-top:12px;border-top:1px solid #e5e7eb;padding-top:8px;">';
+                    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">';
+                    html += '<input type="checkbox" class="order-checkbox" data-order-key="' + escapeHtml(key) + '" ' + (isChecked ? 'checked' : '') + ' style="cursor:pointer;">';
+                    html += '<strong style="font-size:13px;">' + escapeHtml(label) + '</strong>';
+                    html += '<span style="font-size:11px;color:#6b7280;">(' + g.units + ' units)</span>';
+                    html += '</div>';
+                    for (const item of g.entries) {
+                        const e = item.entry;
+                        html += '<div class="log-entry" style="margin-left:24px;">';
+                        html += '<span><span class="log-card">' + escapeHtml(e.cardName) + '</span> &rarr; <span class="log-location">' + escapeHtml(e.location) + '</span></span>';
+                        html += '<span style="display:flex;align-items:center;gap:8px;">';
+                        html += '<span class="log-qty">Qty: ' + e.quantity + '</span>';
+                        html += '<button class="btn btn-danger btn-sm" title="Undo this pull" style="padding:0 8px;font-size:13px;line-height:1.4;" onclick="window.ui.removePullEntry(' + item.index + ')">✕</button>';
+                        html += '</span></div>';
+                    }
+                    html += '</div>';
                 }
                 this.pullLog.innerHTML = html;
+
+                // Wire checkbox change handlers.
+                const self = this;
+                this.pullLog.querySelectorAll('input.order-checkbox').forEach(function (cb) {
+                    cb.addEventListener('change', function () {
+                        const key = cb.getAttribute('data-order-key');
+                        if (cb.checked) self.selectedOrders.add(key);
+                        else self.selectedOrders.delete(key);
+                    });
+                });
+            }
+
+            removeCommittedPulls(tokens) {
+                // tokens is a Set of order tokens (or null for unallocated).
+                if (!tokens || tokens.size === 0) return;
+
+                // 1. Filter pullLog, keeping only uncommitted entries.
+                const kept = [];
+                for (const e of pullLog) {
+                    const t = e.orderToken || null;
+                    if (tokens.has(t)) {
+                        // Committed. Drop it.
+                    } else {
+                        kept.push(e);
+                    }
+                }
+                pullLog.length = 0;
+                for (const e of kept) pullLog.push(e);
+
+                // 2. Rebuild inventoryModifications from what's left.
+                const affectedRowIds = new Set();
+                for (const e of kept) {
+                    const rowId = getRowId(e.pulledFrom);
+                    if (rowId) affectedRowIds.add(rowId);
+                }
+                // Also consider rows that *were* modified but now have no pulls.
+                for (const rowId of Object.keys(inventoryModifications)) {
+                    affectedRowIds.add(rowId);
+                }
+                for (const rowId of affectedRowIds) {
+                    if (!inventoryModifications[rowId]) continue;
+                    const mod = inventoryModifications[rowId];
+                    const remainingPulls = [];
+                    for (const e of kept) {
+                        if (getRowId(e.pulledFrom) === rowId) remainingPulls.push(e);
+                    }
+                    if (remainingPulls.length === 0) {
+                        delete inventoryModifications[rowId];
+                    } else {
+                        mod.pulled = remainingPulls;
+                        const totalPulled = remainingPulls.reduce((s, p) => s + p.quantity, 0);
+                        mod.newQty = Math.max(0, mod.originalQty - totalPulled);
+                    }
+                }
+
+                // 3. Clear selection and refresh UI.
+                if (this.selectedOrders) this.selectedOrders.clear();
+                this.updatePullLogUI();
+                this.render();
+            }
+
+            getSelectedOrderTokens() {
+                // Returns the Set of order tokens to commit, or null for "all".
+                // '__unallocated__' maps to null (no order token).
+                const set = this.selectedOrders || new Set();
+                if (set.size === 0) return new Set();
+                const tokens = new Set();
+                for (const key of set) {
+                    tokens.add(key === '__unallocated__' ? null : key);
+                }
+                return tokens;
             }
             
             downloadUpdatedInventory() {
@@ -3264,7 +3530,10 @@
                 const qtyFilter = this.qtyFilter.value;
                 const isQuick = this.engine.isQuickLookup;
 
-                let filtered = this.results;
+                // Start from the focused results (if any orders are focused on),
+                // otherwise show everything.
+                const baseResults = this.getFocusedResults();
+                let filtered = baseResults;
                 if (status !== 'all') {
                     if (status === 'Pulled') {
                         filtered = filtered.filter(r => r['IsPulled'] === true);
@@ -3467,7 +3736,8 @@
 
             
             async printPickingList() {
-                if (!this.results || this.results.length === 0) {
+                const focusedResults = this.getFocusedResults();
+                if (!focusedResults || focusedResults.length === 0) {
                     alert('No results to print.');
                     return;
                 }
@@ -3479,7 +3749,7 @@
                     // Look up every result row (Found, Pulled, Ambiguous, Not Found)
                     // so all groups -- including the "NOT FOUND" shopping list --
                     // can be ordered by color.
-                    const cards = this.results
+                    const cards = focusedResults
                         .map(r => ({ name: r['Pull Sheet Name'] || r['Clean Name'] || '', number: r['Number'] || '', set: r['Set'] || '' }));
                     ranks = await fetchColorRanks(cards);
                 } catch (e) {
@@ -3514,9 +3784,9 @@
                     return COLOR_NAMES[cols[0]] || 'Colorless';
                 };
                 
-                const foundItems = this.results.filter(r => r['Status'] === 'Found' && !r['IsPulled']);
-                const pulledItems = this.results.filter(r => r['IsPulled']);
-                const notFoundItems = this.results.filter(r => r['Status'] === 'Not Found');
+                const foundItems = focusedResults.filter(r => r['Status'] === 'Found' && !r['IsPulled']);
+                const pulledItems = focusedResults.filter(r => r['IsPulled']);
+                const notFoundItems = focusedResults.filter(r => r['Status'] === 'Not Found');
                 
                 const flattenedFound = [];
                 for (const item of foundItems) {
@@ -3587,7 +3857,7 @@
                 
                 const summaryHTML = `
                     <div class="print-summary-item">
-                        <div class="number">${this.results.length}</div>
+                        <div class="number">${focusedResults.length}</div>
                         <div class="label">${this.engine.isQuickLookup ? 'Cards Searched' : 'Magic Cards'}</div>
                     </div>
                     <div class="print-summary-item">
@@ -3691,7 +3961,7 @@
                 }
                 
                 document.getElementById('printPickingList').innerHTML = html;
-                document.getElementById('printNotFoundItems').innerHTML = '';
+                document.getElementById('printNotFoundList').innerHTML = '';
                 
                 window.print();
             }
