@@ -377,6 +377,17 @@
         <button type="button" id="bulkMoveBtn" style="padding:8px 16px; border:none; background:#6366f1; color:white; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer;">↔️ Move all to...</button>
         <button type="button" id="bulkClearBtn" style="padding:8px 16px; border:none; background:#4b5563; color:white; border-radius:6px; font-size:13px; cursor:pointer;">Clear</button>
     </div>
+    <div id="addPanel" style="display:none; position:fixed; z-index:1001; background:white; border:1px solid #d1d5db; border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,0.15); padding:16px; width:340px; max-height:80vh; overflow-y:auto; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <div style="font-size:13px; font-weight:600; color:#1a1a2e;">📝 Add card</div>
+            <button type="button" id="addClose" style="border:none; background:none; font-size:18px; line-height:1; cursor:pointer; color:#6b7280;">×</button>
+        </div>
+        <div id="addForm"></div>
+        <div style="display:flex; gap:8px; margin-top:12px; justify-content:flex-end;">
+            <button type="button" id="addCancel" style="padding:6px 12px; border:1px solid #d1d5db; background:white; border-radius:6px; font-size:12px; cursor:pointer;">Cancel</button>
+            <button type="button" id="addSave" style="padding:6px 12px; border:none; background:#6366f1; color:white; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer;">Add</button>
+        </div>
+    </div>
     <div id="editPanel" style="display:none; position:fixed; z-index:1001; background:white; border:1px solid #d1d5db; border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,0.15); padding:16px; width:340px; max-height:80vh; overflow-y:auto; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
             <div style="font-size:13px; font-weight:600; color:#1a1a2e;" id="editTitle">✏️ Edit card</div>
@@ -493,7 +504,8 @@
                 <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
                     <h4 style="margin:0;">📦 Inventory actions</h4>
                     <button class="btn btn-primary btn-sm" id="appendBatchBtn" type="button">➕ Append scan batch</button>
-                    <span style="font-size:11px;color:#6b7280;">Upload a scan CSV and assign it to a box.</span>
+                    <button class="btn btn-secondary btn-sm" id="addCardBtn" type="button">📝 Add single card</button>
+                    <span style="font-size:11px;color:#6b7280;">Upload a scan CSV or add a card manually.</span>
                 </div>
             </div>
 
@@ -1804,6 +1816,8 @@
                 });
                 const appendBtn = document.getElementById('appendBatchBtn');
                 if (appendBtn) appendBtn.addEventListener('click', () => this.appendScanBatch());
+                const addBtn = document.getElementById('addCardBtn');
+                if (addBtn) addBtn.addEventListener('click', () => this.openAddForm());
                 this.applyApiMode();
                 const expandBtn = document.getElementById('expandSetupBtn');
                 if (expandBtn) expandBtn.addEventListener('click', () => this.expandSetup());
@@ -2219,7 +2233,104 @@
                 }
             }
             
-            findLocations() {
+            async ensureColorsForCards(cards) {
+                // cards: [{set, number, name?}]. Fetches missing colors from
+                // Scryfall directly (CORS is open), merges into colorTable,
+                // saves to localStorage. Non-blocking failure: if Scryfall
+                // is unreachable, we proceed with whatever colors we have.
+                if (!colorTableLoaded) return;
+
+                // 1. Figure out which cards we're missing.
+                const missing = [];
+                const seen = {};
+                for (const c of cards) {
+                    const key = String(c.set || '').toLowerCase().trim() + '|' + String(c.number || '').trim();
+                    if (!key || key === '|') continue;
+                    if (seen[key]) continue;
+                    seen[key] = true;
+                    if (!colorTable[key]) missing.push({ set: c.set, number: c.number });
+                }
+                if (missing.length === 0) return;
+
+                // 2. Get a set-name -> code map (cached in localStorage).
+                let setMap = {};
+                try {
+                    setMap = JSON.parse(localStorage.getItem('cardfetch_set_codes') || '{}');
+                } catch (e) { setMap = {}; }
+
+                // If empty or missing some sets we need, refresh from Scryfall.
+                const neededSets = {};
+                for (const c of missing) neededSets[String(c.set || '').toLowerCase().trim()] = true;
+                const haveAll = Object.keys(neededSets).every(k => !!setMap[k]);
+
+                if (!haveAll) {
+                    try {
+                        const sr = await fetch('https://api.scryfall.com/sets');
+                        if (sr.ok) {
+                            const sd = await sr.json();
+                            for (const s of (sd.data || [])) {
+                                if (s.name) setMap[s.name.toLowerCase()] = (s.code || '').toLowerCase();
+                                if (s.code) setMap[s.code.toLowerCase()] = (s.code || '').toLowerCase();
+                            }
+                            localStorage.setItem('cardfetch_set_codes', JSON.stringify(setMap));
+                        }
+                    } catch (e) {
+                        // Fall through with whatever setMap we had.
+                    }
+                }
+
+                // 3. Build identifiers using set codes.
+                const identifiers = [];
+                const keyFor = [];
+                for (const m of missing) {
+                    const setName = String(m.set || '').toLowerCase().trim();
+                    const code = setMap[setName];
+                    if (!code) continue;
+                    identifiers.push({ set: code, collector_number: String(m.number) });
+                    keyFor.push(String(m.set || '').toLowerCase().trim() + '|' + String(m.number).trim());
+                }
+                if (identifiers.length === 0) return;
+
+                // 4. Batch fetch from Scryfall's collection endpoint.
+                const BATCH = 75;
+                const cache = loadColorCache();
+                let added = 0;
+                for (let i = 0; i < identifiers.length; i += BATCH) {
+                    try {
+                        const batch = identifiers.slice(i, i + BATCH);
+                        const r = await fetch('https://api.scryfall.com/cards/collection', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ identifiers: batch })
+                        });
+                        if (!r.ok) continue;
+                        const data = await r.json();
+                        for (const card of (data.data || [])) {
+                            // Use color_identity, not colors: color_identity captures
+                            // the printed color for Devoid cards and other edge cases.
+                            const colors = card.color_identity || [];
+                            const typeLine = card.type_line || '';
+                            let rank;
+                            if (/\\bland\\b/i.test(typeLine) && colors.length === 0) rank = 7;
+                            else if (colors.length === 0) rank = 6;
+                            else if (colors.length > 1) rank = 5;
+                            else {
+                                const order = { W: 0, U: 1, B: 2, R: 3, G: 4 };
+                                rank = order[colors[0]] !== undefined ? order[colors[0]] : 6;
+                            }
+                            const key = (card.set_name || '').toLowerCase() + '|' + String(card.collector_number || '');
+                            const entry = { rank: rank, colors: colors, name: card.name };
+                            if (!colorTable[key]) { colorTable[key] = entry; added++; }
+                            if (!cache[key]) cache[key] = entry;
+                        }
+                    } catch (e) {
+                        // Skip failed batches.
+                    }
+                }
+                if (added > 0) saveColorCache(cache);
+            }
+
+            async findLocations() {
                 if (!this.inventoryLoaded) {
                     alert('Please load inventory first.');
                     return;
@@ -2240,6 +2351,17 @@
                 
                 try {
                     if (hasPullSheet) {
+                        // Pre-fetch missing colors from Scryfall via the Worker
+                        // before processing. This makes not-found cards and
+                        // devoid cards sort correctly on the picking list.
+                        const pullSheetCards = this.engine.filteredPullSheet.map(function (row) {
+                            return {
+                                set: row['Set'] || row['Set Name'] || '',
+                                number: row['Number'] || ''
+                            };
+                        });
+                        await this.ensureColorsForCards(pullSheetCards);
+
                         this.results = this.engine.processPullSheet();
                         this.focusedOrders = null;
                         this.renderOrderPicker();
@@ -3150,6 +3272,85 @@
                     this.render();
                 } catch (e) {
                     this.setStatus('error', 'Bulk move failed', String(e && e.message || e), '❌');
+                }
+            }
+
+            openAddForm() {
+                const fields = [
+                    { key: 'TCGplayer Id', label: 'TCGplayer Id (optional)', placeholder: 'leave blank for local: ID' },
+                    { key: 'Product Line', label: 'Product Line', placeholder: 'e.g. Magic' },
+                    { key: 'Set Name', label: 'Set Name', placeholder: 'e.g. Apocalypse' },
+                    { key: 'Product Name', label: 'Product Name', placeholder: 'e.g. Mystic Snake' },
+                    { key: 'Number', label: 'Number', placeholder: 'e.g. 112' },
+                    { key: 'Rarity', label: 'Rarity', placeholder: 'e.g. R' },
+                    { key: 'Condition', label: 'Condition', placeholder: 'e.g. Near Mint' },
+                    { key: 'Total Quantity', label: 'Total Quantity', placeholder: '1' },
+                    { key: 'Where is it?', label: 'Where is it?', placeholder: 'e.g. 081826-2' }
+                ];
+                let html = '';
+                for (const f of fields) {
+                    const isNumber = f.key === 'Total Quantity';
+                    html += '<label style="display:block;font-size:11px;color:#374151;margin-top:6px;">' + escapeHtml(f.label) +
+                        '<input type="' + (isNumber ? 'number' : 'text') + '" data-add-key="' + escapeHtml(f.key) + '" placeholder="' + escapeHtml(f.placeholder || '') + '" ' +
+                        'style="display:block;width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;margin-top:2px;"></label>';
+                }
+                document.getElementById('addForm').innerHTML = html;
+                const panel = document.getElementById('addPanel');
+                panel.style.left = '20px';
+                panel.style.top = '120px';
+                panel.style.display = 'block';
+                if (!this._addWired) {
+                    document.getElementById('addClose').addEventListener('click', () => this.closeAddForm());
+                    document.getElementById('addCancel').addEventListener('click', () => this.closeAddForm());
+                    document.getElementById('addSave').addEventListener('click', () => this.saveNewCard());
+                    this._addWired = true;
+                }
+            }
+
+            closeAddForm() {
+                const panel = document.getElementById('addPanel');
+                if (panel) panel.style.display = 'none';
+            }
+
+            async saveNewCard() {
+                if (!API_BASE) { this.setStatus('error', 'Add unavailable', 'Server not connected', '❌'); return; }
+                const key = this.getWriteKey();
+                if (!key) { this.setStatus('error', 'No write key', 'Write key is required', '❌'); return; }
+                const inputs = document.querySelectorAll('#addForm input[data-add-key]');
+                const body = {};
+                inputs.forEach((el) => {
+                    const k = el.getAttribute('data-add-key');
+                    const v = el.value.trim();
+                    if (v !== '') body[k] = v;
+                });
+                // Validate required fields.
+                const required = ['Product Name', 'Set Name', 'Number', 'Condition', 'Where is it?'];
+                const missing = required.filter(k => !body[k]);
+                if (missing.length > 0) {
+                    this.setStatus('error', 'Add failed', 'Missing: ' + missing.join(', '), '❌');
+                    return;
+                }
+                if (!body['Total Quantity']) body['Total Quantity'] = 1;
+                this.setStatus('loading', 'Adding card...', body['Product Name'], '⏳');
+                try {
+                    const resp = await fetch(API_BASE + '/api/cards/add', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-Write-Key': key },
+                        body: JSON.stringify(body)
+                    });
+                    if (!resp.ok) {
+                        const text = await resp.text();
+                        if (/403|Forbidden/i.test(text)) this.forgetWriteKey();
+                        this.setStatus('error', 'Add failed', text, '❌');
+                        return;
+                    }
+                    const data = await resp.json();
+                    this.rememberWriteKey(key);
+                    this.closeAddForm();
+                    this.setStatus('success', 'Added ' + body['Product Name'], 'in ' + body['Where is it?'], '✅');
+                    this.loadDefaultInventory();
+                } catch (e) {
+                    this.setStatus('error', 'Add failed', String(e && e.message || e), '❌');
                 }
             }
 

@@ -498,6 +498,66 @@ async function handleEdit(req, env) {
   return Response.json({ ok: true, changed: fieldChanges.length, fields: fieldChanges });
 }
 
+// Manually add a card to a box. If the card already exists in that box,
+// the quantity is summed (upsert). Writes an 'add' event.
+// Body: { "TCGplayer Id"?: string, "Product Line"?: string, "Set Name": string,
+//         "Product Name": string, "Number": string, "Rarity"?: string,
+//         "Condition": string, "Total Quantity": number, "Where is it?": string }
+async function handleAdd(req, env) {
+  let body;
+  try { body = await req.json(); } catch (e) {
+    return Response.json({ ok: false, error: 'Body must be JSON' }, { status: 400 });
+  }
+
+  const canon = {
+    tcgplayer_id: body['TCGplayer Id'] ? String(body['TCGplayer Id']).trim() : '',
+    product_line: body['Product Line'] || '',
+    set_name: body['Set Name'] || '',
+    product_name: body['Product Name'] || '',
+    number: body['Number'] || '',
+    rarity: body['Rarity'] || '',
+    condition: body['Condition'] || '',
+    total_quantity: body['Total Quantity'] || 1,
+    box: body['Where is it?'] || ''
+  };
+
+  if (!canon.tcgplayer_id) {
+    // Generate a synthetic ID. The `add` event should probably use the
+    // same ID that the row gets, so we construct it identically.
+    function slug(s) {
+      return String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    }
+    canon.tcgplayer_id = 'local:' + slug(canon.set_name) + ':' + slug(canon.number) + ':' + slug(canon.condition);
+  }
+
+  // Validate required fields.
+  const required = ['product_name', 'set_name', 'number', 'condition', 'box'];
+  const missing = required.filter(k => !canon[k]);
+  if (missing.length > 0) {
+    return Response.json({ ok: false, error: 'Missing required fields: ' + missing.join(', ') }, { status: 400 });
+  }
+
+  const db = env.DB.withSession('first-primary');
+  const qty = parseInt(canon.total_quantity) || 1;
+
+  try {
+    await db.prepare(
+      'INSERT INTO cards (' + DB_COLUMNS.join(',') + ') VALUES (' +
+      DB_COLUMNS.map(function () { return '?'; }).join(',') + ') ' +
+      'ON CONFLICT (tcgplayer_id, box) DO UPDATE SET ' +
+      'total_quantity = COALESCE(total_quantity, 0) + COALESCE(excluded.total_quantity, 0)'
+    ).bind(...canonToParams(canon)).run();
+
+    await db.prepare(
+      'INSERT INTO events (tcgplayer_id, kind, box_to, quantity, source) VALUES (?, ?, ?, ?, ?)'
+    ).bind(canon.tcgplayer_id, 'add', String(canon.box), qty, 'live').run();
+
+    return Response.json({ ok: true, tcgplayer_id: canon.tcgplayer_id, box: canon.box, quantity: qty });
+  } catch (e) {
+    return Response.json({ ok: false, error: String(e && e.message || e) }, { status: 500 });
+  }
+}
+
 async function handleBatches(env) {
   const res = await env.DB.prepare('SELECT box, scanned_on, row_count FROM scan_batches ORDER BY box').all();
   return Response.json({ batches: res.results || [] });
@@ -671,6 +731,11 @@ async function handleRequest(req, env) {
       if (!(await checkWriteKey(req, env))) return withCors(new Response('Forbidden', { status: 403 }));
       return withCors(await handleEdit(req, env));
     }
+    if (path === '/api/cards/add' && req.method === 'POST') {
+      if (!(await checkWriteKey(req, env))) return withCors(new Response('Forbidden', { status: 403 }));
+      return withCors(await handleAdd(req, env));
+    }
+
     if (path === '/api/batches' && req.method === 'GET') return withCors(await handleBatches(env));
     if (path === '/api/events' && req.method === 'GET') return withCors(await handleEvents(env, url));
     return withCors(new Response('Not found', { status: 404 }));

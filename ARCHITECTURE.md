@@ -283,6 +283,88 @@ separated). A single card can belong to multiple orders.
   this card name/set/number." So `TCGplayer Id` is read-only in the edit
   form and stays as the scanner's original guess even after corrections.
 
+## Manual add
+
+The "add a single card" flow is for cards that didn't come from a scan: a
+card from a collection, a card the scanner missed, or a card you want to
+insert by hand.
+
+### Endpoint
+
+- `POST /api/cards/add` — requires write key. Body is the canonical 9 fields
+  in their human-readable names:
+
+    TCGplayer Id (optional)
+    Product Line
+    Set Name
+    Product Name
+    Number
+    Rarity
+    Condition
+    Total Quantity
+    Where is it?
+
+- If `TCGplayer Id` is omitted, the Worker generates
+  `local:<set>:<number>:<condition>` via `synthId`. The ID is stable and
+  searchable, and obviously a local ID (not a TCGplayer one).
+- The insert is an **upsert**: if a row with the same `(tcgplayer_id, box)`
+  already exists, its `total_quantity` is summed with the new quantity.
+- An `add` event is written with `box_to` = the chosen box and `quantity`
+  = the added quantity.
+
+### Front end
+
+- Button: **📝 Add single card** in the Inventory actions card (live mode only).
+- Form: `openAddForm()`, `closeAddForm()`, `saveNewCard()` in `/index.html`.
+- Same field set as the edit form, but empty, plus an optional TCGplayer Id.
+- On success: `loadDefaultInventory()` refreshes the view.
+
+### Why `add` instead of `pull` / `move`
+
+A pull has `box_from` (where it was). A move has both `box_from` and
+`box_to`. An add has only `box_to` — the card wasn't anywhere before. That
+distinction matters if you ever reconstruct state from events: an add
+*creates* a row; a pull *decrements* one; a move *relocates* one.
+
+## Color sorting
+
+The picking list sorts cards by color (W > U > B > R > G > multicolor >
+colorless > land). Color info comes from two sources:
+
+1. **Static cache**: `/card-colors.json` — 3,062 entries, built ahead of
+   time. Fast, works offline, but incomplete (new sets, not-found cards).
+2. **Browser-side Scryfall fetch**: when a pull sheet is loaded and some
+   cards are missing from the static cache, `ensureColorsForCards()` calls
+   Scryfall directly (via the browser's own network, CORS is open) and
+   merges the result into localStorage. Subsequent loads are instant.
+
+### Why the browser and not the Worker
+
+Cloudflare Workers have egress restrictions that make some requests to
+Scryfall fail (rate-limiting, IP blocks, or CORS). The browser runs from
+the user's IP, which Scryfall accepts. This is the same reason the
+initial `/card-colors.json` build was done offline.
+
+### Why `color_identity` and not `colors`
+
+Scryfall exposes two color fields:
+
+- `colors` — the card's actual color, per the rules. **Devoid cards are
+  colorless** (`[]`), even though they have a printed colored symbol.
+- `color_identity` — the card's color identity. **Devoid cards have their
+  printed color** (e.g. `["B"]` for Transgress the Mind).
+
+For sorting by "what color would a human put this in?", we use
+`color_identity`. The static cache was built with the wrong field (or an
+older Scryfall), which is why some Devoid cards sorted as colorless. New
+fetches correct this.
+
+### Fallback behavior
+
+If Scryfall is unreachable, the fetch fails silently, and cards not in the
+static cache print as "Unsorted." This is no worse than before, and
+strictly better for the common case.
+
 ## API
 
 Base path `/api`. All responses are JSON except `GET /api/inventory` (CSV).

@@ -35,9 +35,15 @@ so you can find it when a customer orders it.
   when a card isn't where the inventory says it should be.
 - **History**: click `📜` on any row to see every pull and move for that card,
   with timestamps and sources.
-- **Append a scan batch**: upload a new scanned CSV. The app assigns it a
-  box number (today's date, plus -1, -2 for multiple scans the same day)
-  and adds it to the inventory.
+- **Color-sorted picking lists**: cards sort by their printed color
+  (W > U > B > R > G > multicolor > colorless > land), including cards
+  that aren't in inventory yet, so you can pick a Devoid card by its
+  printed color, not its rules-text "colorless."
+- **Append a scan batch**: upload a new scanned CSV and assign it to a box.
+  The box is chosen by the user (e.g. `081826-2`, `LOTR`), not auto-assigned.
+- **Add a single card**: manually enter one card (name, set, number,
+  condition, quantity, box) without needing a scan. Great for cards from a
+  collection, or for correcting an omitted scan.
 
 ## Architecture (short version)
 
@@ -109,6 +115,18 @@ box is empty) to record the move. The event trail keeps a history.
 
 For bulk operations, check the boxes on multiple rows (or use "select all
 visible"), then click "Move all to..." in the floating bar.
+
+### Adding a single card
+
+1. In the **📦 Inventory actions** card, click **📝 Add single card**.
+2. Fill in the form. `Product Name`, `Set Name`, `Number`, `Condition`, and
+   `Where is it?` are required.
+3. `TCGplayer Id` is optional. If left blank, the app generates a synthetic
+   ID like `local:<set>:<number>:<condition>`.
+4. Click **Add**. The card appears in inventory and its history gets an
+   `add` event.
+
+If the card already exists in that box, the quantity is summed.
 
 ### Adding a new batch of scanned cards
 
