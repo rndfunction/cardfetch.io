@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>cardfetch.io - Audit</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; color: #1a1a2e; }
+  .wrap { max-width: 1200px; margin: 0 auto; }
+  header { background: linear-gradient(135deg, #1a1a2e, #16213e); color: white; padding: 20px 24px; border-radius: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+  header h1 { font-size: 1.4rem; margin: 0; }
+  header a { color: #a5b4fc; text-decoration: none; font-size: 0.9rem; margin-left: 16px; }
+  header a:hover { text-decoration: underline; }
+  .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); margin-bottom: 20px; }
+  .card h2 { font-size: 1.05rem; margin: 0 0 6px 0; }
+  .card p { font-size: 0.9rem; color: #4b5563; margin: 0 0 12px 0; line-height: 1.5; }
+  .summary { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  .stat { background: white; border-radius: 10px; padding: 14px 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); flex: 1; min-width: 140px; }
+  .stat .n { font-size: 1.6rem; font-weight: 700; color: #1a1a2e; }
+  .stat .l { font-size: 0.85rem; color: #6b7280; }
+  .stat.warn .n { color: #dc2626; }
+  .stat.good .n { color: #16a34a; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+  th { background: #f9fafb; font-weight: 600; color: #374151; }
+  td { color: #1f2937; }
+  .empty { color: #6b7280; font-style: italic; padding: 12px 0; }
+  .btn { padding: 6px 12px; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .btn-primary { background: #6366f1; color: white; }
+  .btn-primary:hover { background: #4f46e5; }
+  .btn-secondary { background: #f3f4f6; color: #1f2937; border: 1px solid #d1d5db; }
+  .btn-secondary:hover { background: #e5e7eb; }
+  .btn-sm { padding: 4px 8px; font-size: 11px; }
+  .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  .filter { flex: 1; min-width: 200px; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; }
+  .status { padding: 10px 14px; border-radius: 8px; font-size: 0.9rem; margin-bottom: 16px; display: none; }
+  .status.loading { background: #fffbeb; border: 1px solid #f59e0b; color: #92400e; display: block; }
+  .status.success { background: #f0fdf4; border: 1px solid #22c55e; color: #166534; display: block; }
+  .status.error { background: #fef2f2; border: 1px solid #ef4444; color: #991b1b; display: block; }
+  code { background: #f3f4f6; padding: 1px 5px; border-radius: 4px; font-size: 0.85em; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; }
+  .badge-warn { background: #fef3c7; color: #92400e; }
+  .badge-danger { background: #fee2e2; color: #991b1b; }
+  .badge-ok { background: #dcfce7; color: #166534; }
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: none; align-items: center; justify-content: center; z-index: 1000; }
+  .modal-bg.visible { display: flex; }
+  .modal { background: white; border-radius: 10px; padding: 20px; width: 500px; max-height: 80vh; overflow-y: auto; }
+  .modal h3 { margin: 0 0 12px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🔍 Inventory Audit</h1>
+    <div>
+      <a href="/admin.html">← Admin</a>
+      <a href="/index.html">← App</a>
+    </div>
+  </header>
+
+  <div id="status" class="status"></div>
+
+  <div class="summary">
+    <div class="stat"><div class="n" id="statCards">—</div><div class="l">cards</div></div>
+    <div class="stat"><div class="n" id="statUnits">—</div><div class="l">total units</div></div>
+    <div class="stat"><div class="n" id="statBoxes">—</div><div class="l">boxes</div></div>
+    <div class="stat warn"><div class="n" id="statStale">—</div><div class="l">stale (90+ days)</div></div>
+    <div class="stat warn"><div class="n" id="statSuspicious">—</div><div class="l">suspicious rows</div></div>
+  </div>
+
+  <!-- Report A: Stale -->
+  <div class="card">
+    <h2>Report A — Stale cards (90+ days)</h2>
+    <p>Cards that haven't been pulled, moved, added, or verified in 90+ days. Worth a physical check (and a pricing review).</p>
+    <div class="toolbar">
+      <select class="filter" id="filterBoxA" style="flex:0 0 auto;min-width:140px;">
+        <option value="">All boxes</option>
+      </select>
+      <input type="text" class="filter" id="filterSetA" placeholder="Set name..." style="flex:0 0 auto;min-width:160px;">
+      <input type="text" class="filter" id="filterA" placeholder="Card name...">
+    </div>
+    <div class="toolbar" id="bulkActionsA" style="background:#f9fafb;padding:8px 10px;border-radius:6px;margin-bottom:8px;">
+      <span id="bulkCountA" style="font-size:12px;font-weight:600;color:#374151;">0 selected</span>
+      <button class="btn btn-secondary btn-sm" id="verifySelectedA">✓ Verify</button>
+      <button class="btn btn-secondary btn-sm" id="moveSelectedA">↔️ Move</button>
+      <button class="btn btn-secondary btn-sm" id="editSelectedA">✏️ Edit</button>
+      <button class="btn btn-secondary btn-sm" id="deleteSelectedA" style="color:#b91c1c;">🗑 Delete</button>
+      <button class="btn btn-secondary btn-sm" id="clearSelectedA" style="margin-left:auto;">Clear</button>
+    </div>
+    <div id="reportA"></div>
+  </div>
+
+  <!-- Report B: High-count duplicates -->
+  <div class="card">
+    <h2>Report B — High-count duplicates</h2>
+    <p>Same card, same box, quantity 10 or more. Either you really have that many, or something's double-counted.</p>
+    <div id="reportB"></div>
+  </div>
+
+  <!-- Report C: Box totals -->
+  <div class="card">
+    <h2>Report C — Box totals</h2>
+    <p>Cards and units per box. Boxes over 800 units are flagged (typical box capacity).</p>
+    <div id="reportC"></div>
+  </div>
+
+  <!-- Report D: Structurally broken -->
+  <div class="card">
+    <h2>Report D — Structurally broken rows</h2>
+    <p>Missing name, set, number, condition, or box. These should not exist.</p>
+    <div id="reportD"></div>
+  </div>
+
+  <!-- Report E: Unknown scan date -->
+  <div class="card">
+    <h2>Report E — Unknown scan date</h2>
+    <p>Cards whose box code didn't parse as a date (e.g. <code>LOTR</code>, <code>NCC1701</code>). These can't be judged for staleness. Consider adding a <code>scanned_on</code> value manually if you know it.</p>
+    <div id="reportE"></div>
+  </div>
+
+  <!-- Report F: Deleted (soft-delete) -->
+  <div class="card">
+    <h2>Report F — Deleted cards (recoverable)</h2>
+    <p>Cards that have been soft-deleted. They're hidden from the main inventory but still in the database. Restore to bring them back.</p>
+    <div class="toolbar">
+      <button class="btn btn-secondary btn-sm" id="restoreSelectedF">↩️ Restore selected</button>
+    </div>
+    <div id="reportF"></div>
+  </div>
+</div>
+
+<div class="modal-bg" id="editModal">
+  <div class="modal">
+    <h3 id="editTitle">✏️ Edit card</h3>
+    <div id="editForm"></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
+      <button type="button" class="btn btn-secondary" id="editCancel">Cancel</button>
+      <button type="button" class="btn btn-primary" id="editSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Same Worker URL as the main app and admin page.
+const API_BASE = 'https://cardfetch-api.rndfunction.workers.dev';
+const STALE_DAYS = 90;
+const HIGH_COUNT_THRESHOLD = 10;
+const BOX_WARN_UNITS = 800;
+
+let data = null;
+let deletedCards = [];
+
+function setStatus(kind, text) {
+  const el = document.getElementById('status');
+  el.className = 'status ' + kind;
+  el.textContent = text;
+}
+
+function daysSince(isoString) {
+  if (!isoString) return Infinity;
+  const t = new Date(isoString.replace(' ', 'T') + 'Z').getTime();
+  if (!Number.isFinite(t)) return Infinity;
+  return (Date.now() - t) / (1000 * 60 * 60 * 24);
+}
+
+function escapeHtml(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+async function loadAudit() {
+  setStatus('loading', 'Loading audit data...');
+  try {
+    const r = await fetch(API_BASE + '/api/audit');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    data = await r.json();
+    renderAll();
+    loadDeleted();
+    setStatus('success', 'Loaded ' + data.cards.length + ' cards across ' + data.boxTotals.length + ' boxes.');
+  } catch (e) {
+    setStatus('error', 'Failed to load audit data: ' + String(e && e.message || e));
+  }
+}
+
+function lastEventFor(id) {
+  if (!data) return null;
+  let latest = null;
+  for (const row of data.lastByKind) {
+    if (row.tcgplayer_id !== id) continue;
+    if (!latest || row.latest > latest.latest) latest = row;
+  }
+  return latest;
+}
+
+async function loadDeleted() {
+  try {
+    const r = await fetch(API_BASE + '/api/cards/deleted');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    deletedCards = d.cards || [];
+    renderReportF();
+  } catch (e) {
+    document.getElementById('reportF').innerHTML = '<div class="empty">Failed to load deleted cards: ' + escapeHtml(String(e && e.message || e)) + '</div>';
+  }
+}
+
+function renderReportF() {
+  const el = document.getElementById('reportF');
+  if (!deletedCards || deletedCards.length === 0) {
+    el.innerHTML = '<div class="empty">No deleted cards.</div>';
+    return;
+  }
+  let html = '<table><thead><tr><th style="width:24px;"></th><th>Card</th><th>Set</th><th>#</th><th>Box</th><th>Qty</th><th>Deleted at</th></tr></thead><tbody>';
+  for (const c of deletedCards) {
+    html += '<tr>';
+    html += '<td><input type="checkbox" class="row-check-f" data-tcgid="' + escapeHtml(c.tcgplayer_id) + '" data-box="' + escapeHtml(c.box) + '" data-qty="' + (c.total_quantity || 0) + '"></td>';
+    html += '<td>' + escapeHtml(c.product_name || '(no name)') + '</td>';
+    html += '<td>' + escapeHtml(c.set_name || '') + '</td>';
+    html += '<td>' + escapeHtml(c.number || '') + '</td>';
+    html += '<td>' + escapeHtml(c.box || '') + '</td>';
+    html += '<td>' + (c.total_quantity || 0) + '</td>';
+    html += '<td style="font-size:11px;color:#6b7280;">' + escapeHtml((c.deleted_at || '').slice(0, 19)) + '</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function renderSummary() {
+  const cards = data.cards;
+  const totalUnits = cards.reduce((s, c) => s + (Number(c.total_quantity) || 0), 0);
+  let stale = 0;
+  let suspicious = 0;
+  const cardIdSet = {};
+  for (const c of cards) cardIdSet[c.tcgplayer_id] = true;
+  for (const c of cards) {
+    // Stale only counts cards with a known scan date (Report A).
+    if (c.scanned_on) {
+      const last = lastEventFor(c.tcgplayer_id);
+      if (daysSince(last && last.latest) >= STALE_DAYS) stale++;
+    }
+    if (!c.product_name || !c.set_name || !c.number || !c.condition || !c.box) suspicious++;
+    if ((Number(c.total_quantity) || 0) >= HIGH_COUNT_THRESHOLD) suspicious++;
+  }
+  document.getElementById('statCards').textContent = cards.length;
+  document.getElementById('statUnits').textContent = totalUnits;
+  document.getElementById('statBoxes').textContent = data.boxTotals.length;
+  document.getElementById('statStale').textContent = stale;
+  document.getElementById('statSuspicious').textContent = suspicious;
+}
+
+function renderReportA() {
+  const filterBox = (document.getElementById('filterBoxA').value || '').toLowerCase();
+  const filterSet = (document.getElementById('filterSetA').value || '').toLowerCase();
+  const filter = (document.getElementById('filterA').value || '').toLowerCase();
+  const stale = [];
+  for (const c of data.cards) {
+    // Skip cards with unknown scan date (they go in Report E).
+    if (!c.scanned_on) continue;
+    const last = lastEventFor(c.tcgplayer_id);
+    const days = daysSince(last && last.latest);
+    if (days < STALE_DAYS) continue;
+    if (filterBox && String(c.box || '').toLowerCase() !== filterBox) continue;
+    if (filterSet && String(c.set_name || '').toLowerCase().indexOf(filterSet) === -1) continue;
+    if (filter && String(c.product_name || '').toLowerCase().indexOf(filter) === -1) continue;
+    stale.push({ c: c, last: last, days: days });
+  }
+  stale.sort((a, b) => b.days - a.days);
+  const el = document.getElementById('reportA');
+  if (stale.length === 0) { el.innerHTML = '<div class="empty">No stale cards.</div>'; return; }
+  let html = '<table><thead><tr><th style="width:24px;"><input type="checkbox" id="selectAllA" title="Select all visible"></th><th>Card</th><th>Set</th><th>#</th><th>Box</th><th>Qty</th><th>Scanned</th><th>Last event</th><th>Days</th><th>Actions</th></tr></thead><tbody>';
+  for (const r of stale) {
+    const c = r.c;
+    const ev = r.last ? r.last.kind + ' (' + r.last.latest.slice(0, 10) + ')' : 'never';
+    const days = r.days === Infinity ? '∞' : Math.floor(r.days);
+    html += '<tr>';
+    html += '<td><input type="checkbox" class="row-check-a" data-tcgid="' + escapeHtml(c.tcgplayer_id) + '" data-box="' + escapeHtml(c.box) + '" data-qty="' + (c.total_quantity || 0) + '"></td>';
+    html += '<td>' + escapeHtml(c.product_name || '(no name)') + '</td>';
+    html += '<td>' + escapeHtml(c.set_name || '') + '</td>';
+    html += '<td>' + escapeHtml(c.number || '') + '</td>';
+    html += '<td>' + escapeHtml(c.box || '') + '</td>';
+    html += '<td>' + (c.total_quantity || 0) + '</td>';
+    html += '<td style="font-size:11px;color:#6b7280;">' + escapeHtml((c.scanned_on || '').slice(0, 10)) + '</td>';
+    html += '<td style="font-size:11px;color:#6b7280;">' + escapeHtml(ev) + '</td>';
+    html += '<td><span class="badge badge-warn">' + days + 'd</span></td>';
+    html += '<td style="white-space:nowrap;">';
+    html += '<button class="btn btn-secondary btn-sm verify-btn" data-tcgid="' + escapeHtml(c.tcgplayer_id) + '" data-box="' + escapeHtml(c.box) + '" data-qty="' + (c.total_quantity || 0) + '" title="Confirm this card is in this box">✓</button> ';
+    html += '<button class="btn btn-secondary btn-sm move-btn" data-tcgid="' + escapeHtml(c.tcgplayer_id) + '" data-box="' + escapeHtml(c.box) + '" title="Move to a different box">↔️</button> ';
+    html += '<button class="btn btn-secondary btn-sm edit-btn" data-tcgid="' + escapeHtml(c.tcgplayer_id) + '" data-box="' + escapeHtml(c.box) + '" title="Edit fields">✏️</button> ';
+    html += '<button class="btn btn-secondary btn-sm delete-btn" data-tcgid="' + escapeHtml(c.tcgplayer_id) + '" data-box="' + escapeHtml(c.box) + '" data-qty="' + (c.total_quantity || 0) + '" title="Remove from inventory">🗑</button>';
+    html += '</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  el.innerHTML = html;
+  attachRowActions(el);
+  attachSelectionA(el);
+}
+
+function attachSelectionA(el) {
+  const all = el.querySelector('#selectAllA');
+  const checks = el.querySelectorAll('input.row-check-a');
+  const count = document.getElementById('bulkCountA');
+  function updateCount() {
+    let n = 0;
+    for (const c of checks) if (c.checked) n++;
+    count.textContent = n + ' selected';
+  }
+  if (all) {
+    all.addEventListener('change', function () {
+      for (const c of checks) c.checked = all.checked;
+      updateCount();
+    });
+  }
+  for (const c of checks) {
+    c.addEventListener('change', updateCount);
+  }
+  updateCount();
+}
+
+function renderReportB() {
+  const groups = {};
+  for (const c of data.cards) {
+    const q = Number(c.total_quantity) || 0;
+    if (q < HIGH_COUNT_THRESHOLD) continue;
+    const key = [c.product_name || '', c.set_name || '', c.number || '', c.box || ''].join('||');
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(c);
+  }
+  const keys = Object.keys(groups);
+  const el = document.getElementById('reportB');
+  if (keys.length === 0) { el.innerHTML = '<div class="empty">No high-count duplicates.</div>'; return; }
+  let html = '<table><thead><tr><th>Card</th><th>Set</th><th>#</th><th>Box</th><th>Qty</th><th>ID</th></tr></thead><tbody>';
+  for (const k of keys) {
+    for (const c of groups[k]) {
+      html += '<tr><td>' + escapeHtml(c.product_name) + '</td><td>' + escapeHtml(c.set_name) + '</td><td>' + escapeHtml(c.number) + '</td><td>' + escapeHtml(c.box) + '</td><td><span class="badge badge-warn">' + (c.total_quantity || 0) + '</span></td><td style="font-size:11px;color:#6b7280;">' + escapeHtml(c.tcgplayer_id) + '</td></tr>';
+    }
+  }
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function renderReportC() {
+  const el = document.getElementById('reportC');
+  if (!data.boxTotals || data.boxTotals.length === 0) { el.innerHTML = '<div class="empty">No boxes.</div>'; return; }
+  let html = '<table><thead><tr><th>Box</th><th>Cards</th><th>Units</th><th>Status</th></tr></thead><tbody>';
+  for (const b of data.boxTotals) {
+    const over = (Number(b.units) || 0) > BOX_WARN_UNITS;
+    html += '<tr><td>' + escapeHtml(b.box || '(no box)') + '</td><td>' + b.cards + '</td><td>' + b.units + '</td><td>' + (over ? '<span class="badge badge-danger">Over capacity</span>' : '<span class="badge badge-ok">OK</span>') + '</td></tr>';
+  }
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function renderReportD() {
+  const broken = [];
+  for (const c of data.cards) {
+    if (!c.product_name || !c.set_name || !c.number || !c.condition || !c.box) broken.push(c);
+  }
+  const el = document.getElementById('reportD');
+  if (broken.length === 0) { el.innerHTML = '<div class="empty">No structurally broken rows.</div>'; return; }
+  let html = '<table><thead><tr><th>ID</th><th>Name</th><th>Set</th><th>#</th><th>Cond</th><th>Box</th><th>Qty</th></tr></thead><tbody>';
+  for (const c of broken) {
+    html += '<tr><td style="font-size:11px;color:#6b7280;">' + escapeHtml(c.tcgplayer_id) + '</td><td>' + escapeHtml(c.product_name || '—') + '</td><td>' + escapeHtml(c.set_name || '—') + '</td><td>' + escapeHtml(c.number || '—') + '</td><td>' + escapeHtml(c.condition || '—') + '</td><td>' + escapeHtml(c.box || '—') + '</td><td>' + (c.total_quantity || 0) + '</td></tr>';
+  }
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function renderReportE() {
+  const unknown = [];
+  for (const c of data.cards) {
+    if (!c.scanned_on) unknown.push(c);
+  }
+  unknown.sort((a, b) => String(a.box || '').localeCompare(String(b.box || '')));
+  const el = document.getElementById('reportE');
+  if (unknown.length === 0) { el.innerHTML = '<div class="empty">All cards have a scan date.</div>'; return; }
+  let html = '<table><thead><tr><th>Card</th><th>Set</th><th>#</th><th>Box</th><th>Qty</th><th>ID</th></tr></thead><tbody>';
+  for (const c of unknown) {
+    html += '<tr><td>' + escapeHtml(c.product_name || '(no name)') + '</td><td>' + escapeHtml(c.set_name || '') + '</td><td>' + escapeHtml(c.number || '') + '</td><td>' + escapeHtml(c.box || '') + '</td><td>' + (c.total_quantity || 0) + '</td><td style="font-size:11px;color:#6b7280;">' + escapeHtml(c.tcgplayer_id) + '</td></tr>';
+  }
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function populateBoxFilter() {
+  const sel = document.getElementById('filterBoxA');
+  if (!sel) return;
+  // Preserve the current selection if possible.
+  const current = sel.value;
+  sel.innerHTML = '<option value="">All boxes</option>';
+  const boxes = data.boxTotals.map(function (b) { return b.box || ''; }).filter(Boolean).sort();
+  for (const b of boxes) {
+    const opt = document.createElement('option');
+    opt.value = b.toLowerCase();
+    opt.textContent = b;
+    sel.appendChild(opt);
+  }
+  // Restore previous selection if it's still in the list.
+  if (current && boxes.some(function (b) { return b.toLowerCase() === current; })) sel.value = current;
+}
+
+function renderAll() {
+  if (!data) return;
+  renderSummary();
+  populateBoxFilter();
+  renderReportA();
+  renderReportB();
+  renderReportC();
+  renderReportD();
+  renderReportE();
+}
+
+let editCtx = null;
+
+function openEditModal(tcgplayer_id, box) {
+  const card = data.cards.find(function (c) { return c.tcgplayer_id === tcgplayer_id && c.box === box; });
+  if (!card) return;
+  editCtx = { tcgplayerId: tcgplayer_id, fromBox: box, original: card };
+  const fields = [
+    { key: 'product_line', label: 'Product Line' },
+    { key: 'set_name', label: 'Set Name' },
+    { key: 'product_name', label: 'Product Name' },
+    { key: 'number', label: 'Number' },
+    { key: 'rarity', label: 'Rarity' },
+    { key: 'condition', label: 'Condition' },
+    { key: 'total_quantity', label: 'Total Quantity' },
+    { key: 'box', label: 'Where is it?' }
+  ];
+  const labelMap = {
+    product_line: 'Product Line',
+    set_name: 'Set Name',
+    product_name: 'Product Name',
+    number: 'Number',
+    rarity: 'Rarity',
+    condition: 'Condition',
+    total_quantity: 'Total Quantity',
+    box: 'Where is it?'
+  };
+  let html = '<div style="font-size:11px;color:#6b7280;margin-bottom:8px;">TCGplayer Id: <code>' + escapeHtml(tcgplayer_id) + '</code></div>';
+  for (const f of fields) {
+    const v = card[f.key] == null ? '' : String(card[f.key]);
+    const type = f.key === 'total_quantity' ? 'number' : 'text';
+    html += '<label style="display:block;font-size:11px;color:#374151;margin-top:6px;">' + escapeHtml(labelMap[f.key]) +
+      '<input type="' + type + '" data-edit-key="' + escapeHtml(labelMap[f.key]) + '" value="' + escapeHtml(v) + '" ' +
+      'style="display:block;width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;margin-top:2px;"></label>';
+  }
+  document.getElementById('editForm').innerHTML = html;
+  document.getElementById('editTitle').textContent = '✏️ Edit ' + (card.product_name || 'card');
+  document.getElementById('editModal').classList.add('visible');
+}
+
+function closeEditModal() {
+  document.getElementById('editModal').classList.remove('visible');
+  editCtx = null;
+}
+
+async function saveEditModal() {
+  if (!editCtx) return;
+  const key = localStorage.getItem('cardfetch_write_key');
+  if (!key) { alert('No write key stored. Open the admin page and reset it.'); return; }
+  const inputs = document.querySelectorAll('#editForm input[data-edit-key]');
+  const changes = {};
+  inputs.forEach(function (el) {
+    const k = el.getAttribute('data-edit-key');
+    const v = el.value;
+    const orig = editCtx.original[k === 'Where is it?' ? 'box' :
+                       k === 'Product Line' ? 'product_line' :
+                       k === 'Set Name' ? 'set_name' :
+                       k === 'Product Name' ? 'product_name' :
+                       k === 'Number' ? 'number' :
+                       k === 'Rarity' ? 'rarity' :
+                       k === 'Condition' ? 'condition' :
+                       k === 'Total Quantity' ? 'total_quantity' : ''];
+    const origStr = orig == null ? '' : String(orig);
+    if (origStr !== v) changes[k] = v;
+  });
+  if (Object.keys(changes).length === 0) { closeEditModal(); return; }
+  try {
+    const r = await fetch(API_BASE + '/api/cards/edit', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'X-Write-Key': key },
+      body: JSON.stringify({
+        tcgplayer_id: editCtx.tcgplayerId,
+        from_box: editCtx.fromBox,
+        changes: changes
+      })
+    });
+    if (!r.ok) {
+      const text = await r.text();
+      setStatus('error', 'Edit failed: ' + text);
+      return;
+    }
+    const data = await r.json();
+    setStatus('success', 'Saved. ' + (data && data.changed ? data.changed + ' field(s) changed.' : ''));
+    closeEditModal();
+    loadAudit();
+  } catch (e) {
+    setStatus('error', 'Edit failed: ' + String(e && e.message || e));
+  }
+}
+
+async function verifyCard(tcgplayer_id, box, quantity) {
+  const key = localStorage.getItem('cardfetch_write_key');
+  if (!key) {
+    alert('No write key stored. Open the admin page and reset it, then try again.');
+    return false;
+  }
+  try {
+    const r = await fetch(API_BASE + '/api/cards/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Write-Key': key },
+      body: JSON.stringify({ tcgplayer_id: tcgplayer_id, box: box, quantity: quantity })
+    });
+    if (!r.ok) {
+      const text = await r.text();
+      setStatus('error', 'Verify failed: ' + text);
+      return false;
+    }
+    // Optimistic cache update: record that this card was just verified.
+    const existing = data.lastByKind.find(function (row) {
+      return row.tcgplayer_id === tcgplayer_id && row.kind === 'verify';
+    });
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    if (existing) { existing.latest = now; }
+    else { data.lastByKind.push({ tcgplayer_id: tcgplayer_id, kind: 'verify', latest: now }); }
+    return true;
+  } catch (e) {
+    setStatus('error', 'Verify failed: ' + String(e && e.message || e));
+    return false;
+  }
+}
+
+function attachRowActions(container) {
+  container.querySelectorAll('.verify-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      const id = btn.getAttribute('data-tcgid');
+      const box = btn.getAttribute('data-box');
+      const qty = btn.getAttribute('data-qty');
+      btn.disabled = true;
+      btn.textContent = '...';
+      const ok = await verifyCard(id, box, qty);
+      if (ok) {
+        btn.textContent = '✓';
+        btn.classList.remove('btn-secondary');
+        btn.classList.add('btn-primary');
+      } else {
+        btn.disabled = false;
+        btn.textContent = '✓';
+      }
+    });
+  });
+
+  container.querySelectorAll('.move-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      const id = btn.getAttribute('data-tcgid');
+      const fromBox = btn.getAttribute('data-box');
+      const toBox = prompt('Move card from ' + fromBox + ' to which box?', '');
+      if (!toBox) return;
+      const trimmed = toBox.trim();
+      if (!trimmed || trimmed === fromBox) return;
+      const key = localStorage.getItem('cardfetch_write_key');
+      if (!key) { alert('No write key stored. Open the admin page and reset it.'); return; }
+      try {
+        const r = await fetch(API_BASE + '/api/cards/move', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'X-Write-Key': key },
+          body: JSON.stringify({ tcgplayer_id: id, from_box: fromBox, to_box: trimmed })
+        });
+        if (!r.ok) {
+          const text = await r.text();
+          setStatus('error', 'Move failed: ' + text);
+          return;
+        }
+        setStatus('success', 'Moved to ' + trimmed);
+        loadAudit();
+      } catch (e) {
+        setStatus('error', 'Move failed: ' + String(e && e.message || e));
+      }
+    });
+  });
+
+  container.querySelectorAll('.edit-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const id = btn.getAttribute('data-tcgid');
+      const box = btn.getAttribute('data-box');
+      openEditModal(id, box);
+    });
+  });
+
+  container.querySelectorAll('.delete-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      const id = btn.getAttribute('data-tcgid');
+      const box = btn.getAttribute('data-box');
+      const qty = btn.getAttribute('data-qty');
+      if (!confirm('Delete this card from inventory?\n\nID: ' + id + '\nBox: ' + box + '\nQty: ' + qty + '\n\nThis writes a "delete" event to the history. It cannot be undone from the app.')) return;
+      const key = localStorage.getItem('cardfetch_write_key');
+      if (!key) { alert('No write key stored. Open the admin page and reset it.'); return; }
+      try {
+        const r = await fetch(API_BASE + '/api/cards/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Write-Key': key },
+          body: JSON.stringify({ items: [{ tcgplayer_id: id, box: box, quantity: parseInt(qty, 10) || null }] })
+        });
+        if (!r.ok) {
+          const text = await r.text();
+          setStatus('error', 'Delete failed: ' + text);
+          return;
+        }
+        setStatus('success', 'Deleted from inventory.');
+        loadAudit();
+      } catch (e) {
+        setStatus('error', 'Delete failed: ' + String(e && e.message || e));
+      }
+    });
+  });
+}
+
+function attachVerifyHandlers(container) {
+  // Backwards-compat: some other report may call this.
+  attachRowActions(container);
+}
+
+document.getElementById('restoreSelectedF').addEventListener('click', async function () {
+  const checks = document.querySelectorAll('.row-check-f:checked');
+  if (checks.length === 0) { setStatus('error', 'Nothing selected in Report F.'); return; }
+  const items = [];
+  for (const cb of checks) {
+    items.push({ tcgplayer_id: cb.getAttribute('data-tcgid'), box: cb.getAttribute('data-box') });
+  }
+  const key = localStorage.getItem('cardfetch_write_key');
+  if (!key) { alert('No write key stored. Open the admin page and reset it.'); return; }
+  try {
+    const r = await fetch(API_BASE + '/api/cards/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Write-Key': key },
+      body: JSON.stringify({ items: items })
+    });
+    if (!r.ok) { setStatus('error', 'Restore failed: ' + (await r.text())); return; }
+    const data = await r.json();
+    setStatus('success', 'Restored ' + (data.restored || 0) + ' card(s).');
+    loadAudit();
+  } catch (e) {
+    setStatus('error', 'Restore failed: ' + String(e && e.message || e));
+  }
+});
+
+document.getElementById('editCancel').addEventListener('click', closeEditModal);
+document.getElementById('editSave').addEventListener('click', saveEditModal);
+document.getElementById('filterBoxA').addEventListener('change', renderReportA);
+document.getElementById('filterSetA').addEventListener('input', renderReportA);
+document.getElementById('filterA').addEventListener('input', renderReportA);
+
+function selectedRows() {
+  const checks = document.querySelectorAll('.row-check-a:checked');
+  const out = [];
+  for (const cb of checks) {
+    out.push({
+      tcgplayer_id: cb.getAttribute('data-tcgid'),
+      box: cb.getAttribute('data-box'),
+      quantity: parseInt(cb.getAttribute('data-qty'), 10) || 0
+    });
+  }
+  return out;
+}
+
+document.getElementById('verifySelectedA').addEventListener('click', async function () {
+  const rows = selectedRows();
+  if (rows.length === 0) { setStatus('error', 'Nothing selected.'); return; }
+  let ok = 0;
+  for (const r of rows) {
+    if (await verifyCard(r.tcgplayer_id, r.box, r.quantity)) ok++;
+  }
+  setStatus('success', 'Verified ' + ok + ' of ' + rows.length + ' card(s).');
+  renderAll();
+});
+
+document.getElementById('clearSelectedA').addEventListener('click', function () {
+  document.querySelectorAll('.row-check-a:checked').forEach(function (c) { c.checked = false; });
+  const all = document.getElementById('selectAllA');
+  if (all) all.checked = false;
+  const count = document.getElementById('bulkCountA');
+  if (count) count.textContent = '0 selected';
+});
+
+document.getElementById('moveSelectedA').addEventListener('click', async function () {
+  const rows = selectedRows();
+  if (rows.length === 0) { setStatus('error', 'Nothing selected.'); return; }
+  const toBox = prompt('Move ' + rows.length + ' card(s) to which box?', '');
+  if (!toBox) return;
+  const trimmed = toBox.trim();
+  if (!trimmed) return;
+  const key = localStorage.getItem('cardfetch_write_key');
+  if (!key) { alert('No write key stored. Open the admin page and reset it.'); return; }
+  // Group by from_box, call move-bulk.
+  const moves = rows
+    .filter(function (r) { return r.box !== trimmed; })
+    .map(function (r) { return { tcgplayer_id: r.tcgplayer_id, from_box: r.box, to_box: trimmed }; });
+  if (moves.length === 0) { setStatus('error', 'All selected rows are already in ' + trimmed); return; }
+  try {
+    const resp = await fetch(API_BASE + '/api/cards/move-bulk', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'X-Write-Key': key },
+      body: JSON.stringify({ moves: moves, reason: 'bulk-audit' })
+    });
+    if (!resp.ok) { setStatus('error', 'Move failed: ' + (await resp.text())); return; }
+    const data = await resp.json();
+    setStatus('success', 'Moved ' + (data.moved || 0) + ' card(s). ' + ((data.skipped && data.skipped.length) ? data.skipped.length + ' skipped.' : ''));
+    loadAudit();
+  } catch (e) {
+    setStatus('error', 'Move failed: ' + String(e && e.message || e));
+  }
+});
+
+document.getElementById('editSelectedA').addEventListener('click', async function () {
+  const rows = selectedRows();
+  if (rows.length === 0) { setStatus('error', 'Nothing selected.'); return; }
+  const field = prompt('Bulk edit: which field?\n\nOptions: Product Line, Set Name, Product Name, Number, Rarity, Condition, Total Quantity, Where is it?\n\n(TCGplayer Id is not editable.)', 'Condition');
+  if (!field) return;
+  const validFields = ['Product Line', 'Set Name', 'Product Name', 'Number', 'Rarity', 'Condition', 'Total Quantity', 'Where is it?'];
+  if (validFields.indexOf(field) === -1) { setStatus('error', 'Invalid field: ' + field); return; }
+  const value = prompt('Set "' + field + '" to what value for ' + rows.length + ' card(s)?', '');
+  if (value === null) return;
+  if (!confirm('Set "' + field + '" to "' + value + '" on ' + rows.length + ' card(s)?')) return;
+  const key = localStorage.getItem('cardfetch_write_key');
+  if (!key) { alert('No write key stored. Open the admin page and reset it.'); return; }
+  let ok = 0;
+  let fail = 0;
+  for (const r of rows) {
+    try {
+      const resp = await fetch(API_BASE + '/api/cards/edit', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-Write-Key': key },
+        body: JSON.stringify({
+          tcgplayer_id: r.tcgplayer_id,
+          from_box: r.box,
+          changes: (function () { const c = {}; c[field] = value; return c; })()
+        })
+      });
+      if (resp.ok) ok++; else fail++;
+    } catch (e) { fail++; }
+  }
+  setStatus(fail === 0 ? 'success' : 'error',
+    'Bulk edit: ' + ok + ' succeeded, ' + fail + ' failed.');
+  loadAudit();
+});
+
+document.getElementById('deleteSelectedA').addEventListener('click', async function () {
+  const rows = selectedRows();
+  if (rows.length === 0) { setStatus('error', 'Nothing selected.'); return; }
+  if (!confirm('Delete ' + rows.length + ' card(s) from inventory? This writes a "delete" event per card and cannot be undone from the app.')) return;
+  const key = localStorage.getItem('cardfetch_write_key');
+  if (!key) { alert('No write key stored. Open the admin page and reset it.'); return; }
+  try {
+    const resp = await fetch(API_BASE + '/api/cards/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Write-Key': key },
+      body: JSON.stringify({ items: rows })
+    });
+    if (!resp.ok) { setStatus('error', 'Delete failed: ' + (await resp.text())); return; }
+    const data = await resp.json();
+    setStatus('success', 'Deleted ' + (data.deleted || 0) + ' card(s).');
+    loadAudit();
+  } catch (e) {
+    setStatus('error', 'Delete failed: ' + String(e && e.message || e));
+  }
+});
+
+loadAudit();
+</script>
+</body>
+</html>

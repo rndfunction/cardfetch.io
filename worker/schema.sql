@@ -27,7 +27,9 @@ CREATE TABLE IF NOT EXISTS cards (
   box TEXT,
   sold_for_2 REAL,
   profit REAL,
-  raw TEXT
+  raw TEXT,
+  scanned_on TEXT,
+  deleted_at TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cards_id_box

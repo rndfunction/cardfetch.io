@@ -265,7 +265,7 @@ function parseImport(body, opts) {
 // --- Routes --------------------------------------------------------------
 
 async function handleInventoryGet(env) {
-  const res = await env.DB.prepare('SELECT * FROM cards ORDER BY box, set_name, product_name').all();
+  const res = await env.DB.prepare('SELECT * FROM cards WHERE deleted_at IS NULL ORDER BY box, set_name, product_name').all();
   const rows = (res.results || []).map(rowToOut);
   return new Response(toCsv(rows), { headers: { 'Content-Type': 'text/csv; charset=utf-8' } });
 }
@@ -342,14 +342,19 @@ async function handleAppend(req, env) {
 
   const db = env.DB.withSession('first-primary');
   const now = new Date();
+  // Append sets scanned_on to the current date. This is the closest thing
+  // to "when this was scanned" that we have; the box code may also carry
+  // the same information, but an explicit column survives future box
+  // convention changes.
+  const scannedOn = now.toISOString().slice(0, 10);
   const statements = [];
   for (const r of parsed.rows) {
     const params = canonToParams(r.canon);
     statements.push(
       db.prepare(
-        'INSERT OR IGNORE INTO cards (' + DB_COLUMNS.join(',') + ') VALUES (' +
-        DB_COLUMNS.map(function () { return '?'; }).join(',') + ')'
-      ).bind(...params)
+        'INSERT OR IGNORE INTO cards (' + DB_COLUMNS.join(',') + ', scanned_on) VALUES (' +
+        DB_COLUMNS.map(function () { return '?'; }).join(',') + ', ?)'
+      ).bind(...params, scannedOn)
     );
   }
   await runBatched(db, statements);
@@ -382,7 +387,7 @@ async function handleQuantitiesPatch(req, env) {
     if (!u || !u.tcgplayer_id || !u.box) continue;
     const qty = Number(u.total_quantity);
     statements.push(
-      db.prepare('UPDATE cards SET total_quantity = ? WHERE tcgplayer_id = ? AND box = ?')
+      db.prepare('UPDATE cards SET total_quantity = ? WHERE tcgplayer_id = ? AND box = ? AND deleted_at IS NULL')
         .bind(Number.isFinite(qty) ? qty : 0, u.tcgplayer_id, u.box)
     );
   }
@@ -541,12 +546,13 @@ async function handleAdd(req, env) {
   const qty = parseInt(canon.total_quantity) || 1;
 
   try {
+    const scannedOn = new Date().toISOString().slice(0, 10);
     await db.prepare(
-      'INSERT INTO cards (' + DB_COLUMNS.join(',') + ') VALUES (' +
-      DB_COLUMNS.map(function () { return '?'; }).join(',') + ') ' +
+      'INSERT INTO cards (' + DB_COLUMNS.join(',') + ', scanned_on) VALUES (' +
+      DB_COLUMNS.map(function () { return '?'; }).join(',') + ', ?) ' +
       'ON CONFLICT (tcgplayer_id, box) DO UPDATE SET ' +
       'total_quantity = COALESCE(total_quantity, 0) + COALESCE(excluded.total_quantity, 0)'
-    ).bind(...canonToParams(canon)).run();
+    ).bind(...canonToParams(canon), scannedOn).run();
 
     await db.prepare(
       'INSERT INTO events (tcgplayer_id, kind, box_to, quantity, source) VALUES (?, ?, ?, ?, ?)'
@@ -556,6 +562,184 @@ async function handleAdd(req, env) {
   } catch (e) {
     return Response.json({ ok: false, error: String(e && e.message || e) }, { status: 500 });
   }
+}
+
+// Audit data: cards, per-card latest event, box totals. Read-only.
+async function handleAudit(env) {
+  const cardsRes = await env.DB.prepare(
+    'SELECT tcgplayer_id, product_line, set_name, product_name, number, rarity, condition, total_quantity, box, scanned_on, deleted_at FROM cards WHERE deleted_at IS NULL ORDER BY box, set_name, product_name'
+  ).all();
+  const cards = cardsRes.results || [];
+
+  // Latest event per (card, kind). Front end picks the max across kinds.
+  const eventsRes = await env.DB.prepare(
+    'SELECT tcgplayer_id, kind, MAX(created_at) AS latest FROM events GROUP BY tcgplayer_id, kind'
+  ).all();
+  const lastByKind = eventsRes.results || [];
+
+  // Box totals.
+  const boxRes = await env.DB.prepare(
+    'SELECT box, COUNT(*) AS cards, COALESCE(SUM(total_quantity), 0) AS units FROM cards WHERE deleted_at IS NULL GROUP BY box ORDER BY box'
+  ).all();
+  const boxTotals = boxRes.results || [];
+
+  return Response.json({ cards, lastByKind, boxTotals });
+}
+
+// Record a verify event. Body: { tcgplayer_id, box, quantity? }.
+async function handleVerify(req, env) {
+  let body;
+  try { body = await req.json(); } catch (e) {
+    return Response.json({ ok: false, error: 'Body must be JSON' }, { status: 400 });
+  }
+  const { tcgplayer_id, box, quantity } = body || {};
+  if (!tcgplayer_id || !box) {
+    return Response.json({ ok: false, error: 'tcgplayer_id and box are required' }, { status: 400 });
+  }
+  const db = env.DB.withSession('first-primary');
+  try {
+    await db.prepare(
+      'INSERT INTO events (tcgplayer_id, kind, box_from, quantity, source) VALUES (?, ?, ?, ?, ?)'
+    ).bind(
+      String(tcgplayer_id), 'verify', String(box),
+      Number.isFinite(Number(quantity)) ? Number(quantity) : null,
+      'live'
+    ).run();
+    return Response.json({ ok: true });
+  } catch (e) {
+    return Response.json({ ok: false, error: String(e && e.message || e) }, { status: 500 });
+  }
+}
+
+// One-time backfill: fill scanned_on from the box code where possible.
+// Box codes of the form MMDDYY (5 or 6 digits) or MMDDYY-N are parseable.
+// Boxes that don't match (LOTR, NCC1701, etc.) stay null.
+// Idempotent: only updates rows where scanned_on IS NULL.
+async function handleBackfillScanDates(req, env) {
+  function parseBoxDate(box) {
+    if (!box) return null;
+    const m = String(box).match(/^(\d{5,6})(?:-\d+)?$/);
+    if (!m) return null;
+    let s = m[1];
+    if (s.length === 5) s = '0' + s;
+    const mm = parseInt(s.slice(0, 2), 10);
+    const dd = parseInt(s.slice(2, 4), 10);
+    const yy = parseInt(s.slice(4, 6), 10);
+    if (!(mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31)) return null;
+    // Interpret YY as 20YY (these dates are all post-2020).
+    const year = 2000 + yy;
+    const iso = year + '-' + String(mm).padStart(2, '0') + '-' + String(dd).padStart(2, '0');
+    // Sanity check: valid date.
+    const d = new Date(iso + 'T00:00:00Z');
+    if (isNaN(d.getTime())) return null;
+    return iso;
+  }
+
+  const db = env.DB.withSession('first-primary');
+  const res = await db.prepare(
+    'SELECT tcgplayer_id, box FROM cards WHERE scanned_on IS NULL'
+  ).all();
+  const rows = res.results || [];
+  const statements = [];
+  let filled = 0;
+  let skipped = 0;
+  for (const r of rows) {
+    const iso = parseBoxDate(r.box);
+    if (!iso) { skipped++; continue; }
+    statements.push(
+      db.prepare('UPDATE cards SET scanned_on = ? WHERE tcgplayer_id = ? AND box = ? AND scanned_on IS NULL')
+        .bind(iso, r.tcgplayer_id, r.box)
+    );
+    filled++;
+  }
+  if (statements.length > 0) {
+    for (let i = 0; i < statements.length; i += BATCH_CHUNK) {
+      await db.batch(statements.slice(i, i + BATCH_CHUNK));
+    }
+  }
+  return Response.json({ ok: true, filled, skipped, total: rows.length });
+}
+
+// Delete one or more cards. Body: { items: [{ tcgplayer_id, box, quantity? }] }
+// Each delete writes a 'delete' event first (so the trail shows the removal),
+// then removes the row. Best-effort: one bad item doesn't abort the others.
+async function handleDelete(req, env) {
+  let body;
+  try { body = await req.json(); } catch (e) {
+    return Response.json({ ok: false, error: 'Body must be JSON' }, { status: 400 });
+  }
+  const items = (body && body.items) || (body && body.tcgplayer_id ? [{ tcgplayer_id: body.tcgplayer_id, box: body.box, quantity: body.quantity }] : []);
+  if (!Array.isArray(items) || items.length === 0) {
+    return Response.json({ ok: false, error: 'No items to delete' }, { status: 400 });
+  }
+  const db = env.DB.withSession('first-primary');
+  const statements = [];
+  let valid = 0;
+  for (const it of items) {
+    if (!it || !it.tcgplayer_id || !it.box) continue;
+    valid++;
+    statements.push(
+      db.prepare(
+        'INSERT INTO events (tcgplayer_id, kind, box_from, quantity, source) VALUES (?, ?, ?, ?, ?)'
+      ).bind(String(it.tcgplayer_id), 'delete', String(it.box), Number.isFinite(Number(it.quantity)) ? Number(it.quantity) : null, 'live')
+    );
+    statements.push(
+      db.prepare("UPDATE cards SET deleted_at = datetime('now') WHERE tcgplayer_id = ? AND box = ? AND deleted_at IS NULL")
+        .bind(String(it.tcgplayer_id), String(it.box))
+    );
+  }
+  if (statements.length === 0) {
+    return Response.json({ ok: false, error: 'No valid items' }, { status: 400 });
+  }
+  for (let i = 0; i < statements.length; i += BATCH_CHUNK) {
+    await db.batch(statements.slice(i, i + BATCH_CHUNK));
+  }
+  return Response.json({ ok: true, deleted: valid });
+}
+
+// Restore soft-deleted cards. Body: { items: [{ tcgplayer_id, box }] }
+// Clears deleted_at and writes a 'restore' event.
+async function handleRestore(req, env) {
+  let body;
+  try { body = await req.json(); } catch (e) {
+    return Response.json({ ok: false, error: 'Body must be JSON' }, { status: 400 });
+  }
+  const items = (body && body.items) || [];
+  if (!Array.isArray(items) || items.length === 0) {
+    return Response.json({ ok: false, error: 'No items to restore' }, { status: 400 });
+  }
+  const db = env.DB.withSession('first-primary');
+  const statements = [];
+  let valid = 0;
+  for (const it of items) {
+    if (!it || !it.tcgplayer_id || !it.box) continue;
+    valid++;
+    statements.push(
+      db.prepare('UPDATE cards SET deleted_at = NULL WHERE tcgplayer_id = ? AND box = ?')
+        .bind(String(it.tcgplayer_id), String(it.box))
+    );
+    statements.push(
+      db.prepare(
+        'INSERT INTO events (tcgplayer_id, kind, box_from, quantity, source) VALUES (?, ?, ?, ?, ?)'
+      ).bind(String(it.tcgplayer_id), 'restore', String(it.box), Number.isFinite(Number(it.quantity)) ? Number(it.quantity) : null, 'live')
+    );
+  }
+  if (statements.length === 0) {
+    return Response.json({ ok: false, error: 'No valid items' }, { status: 400 });
+  }
+  for (let i = 0; i < statements.length; i += BATCH_CHUNK) {
+    await db.batch(statements.slice(i, i + BATCH_CHUNK));
+  }
+  return Response.json({ ok: true, restored: valid });
+}
+
+// List soft-deleted cards. Read-only.
+async function handleDeletedList(env) {
+  const res = await env.DB.prepare(
+    'SELECT tcgplayer_id, product_line, set_name, product_name, number, rarity, condition, total_quantity, box, scanned_on, deleted_at FROM cards WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC'
+  ).all();
+  const cards = res.results || [];
+  return Response.json({ cards: cards });
 }
 
 async function handleBatches(env) {
@@ -636,7 +820,7 @@ async function handleMove(req, env) {
   try {
     // Update the row.
     const upd = await db.prepare(
-      'UPDATE cards SET box = ? WHERE tcgplayer_id = ? AND box = ?'
+      'UPDATE cards SET box = ? WHERE tcgplayer_id = ? AND box = ? AND deleted_at IS NULL'
     ).bind(to_box, tcgplayer_id, from_box).run();
     const changes = upd.meta ? upd.meta.changes : null;
     if (changes === 0) {
@@ -734,6 +918,28 @@ async function handleRequest(req, env) {
     if (path === '/api/cards/add' && req.method === 'POST') {
       if (!(await checkWriteKey(req, env))) return withCors(new Response('Forbidden', { status: 403 }));
       return withCors(await handleAdd(req, env));
+    }
+    if (path === '/api/cards/verify' && req.method === 'POST') {
+      if (!(await checkWriteKey(req, env))) return withCors(new Response('Forbidden', { status: 403 }));
+      return withCors(await handleVerify(req, env));
+    }
+    if (path === '/api/cards/backfill-scan-dates' && req.method === 'POST') {
+      if (!(await checkWriteKey(req, env))) return withCors(new Response('Forbidden', { status: 403 }));
+      return withCors(await handleBackfillScanDates(req, env));
+    }
+    if (path === '/api/cards/delete' && req.method === 'POST') {
+      if (!(await checkWriteKey(req, env))) return withCors(new Response('Forbidden', { status: 403 }));
+      return withCors(await handleDelete(req, env));
+    }
+    if (path === '/api/cards/restore' && req.method === 'POST') {
+      if (!(await checkWriteKey(req, env))) return withCors(new Response('Forbidden', { status: 403 }));
+      return withCors(await handleRestore(req, env));
+    }
+    if (path === '/api/cards/deleted' && req.method === 'GET') {
+      return withCors(await handleDeletedList(env));
+    }
+    if (path === '/api/audit' && req.method === 'GET') {
+      return withCors(await handleAudit(env));
     }
 
     if (path === '/api/batches' && req.method === 'GET') return withCors(await handleBatches(env));

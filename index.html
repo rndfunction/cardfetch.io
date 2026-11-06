@@ -985,8 +985,31 @@
             return updated;
         }
         
-        // ============================================================
-        // LOOKUP ENGINE - WITH FIXED CSV PARSING
+            // Return the index of the "best" location for a result row:
+            // the one with the most current quantity. Tie-break on location
+            // string for determinism. This is dynamic, recomputed on every
+            // render/pull, so it reflects the state after previous pulls.
+            function bestLocationIndex(row) {
+                const locs = row && row.Locations ? row.Locations : [];
+                if (locs.length === 0) return 0;
+                let best = 0;
+                for (let i = 1; i < locs.length; i++) {
+                    const a = locs[i];
+                    const b = locs[best];
+                    const qa = typeof a.quantity === 'number' ? a.quantity : 0;
+                    const qb = typeof b.quantity === 'number' ? b.quantity : 0;
+                    if (qa > qb) { best = i; continue; }
+                    if (qa === qb) {
+                        const la = String(a.location || '');
+                        const lb = String(b.location || '');
+                        if (la.localeCompare(lb) < 0) best = i;
+                    }
+                }
+                return best;
+            }
+
+            // ============================================================
+            // LOOKUP ENGINE - WITH FIXED CSV PARSING
         // ============================================================
         
         class LookupEngine {
@@ -2654,7 +2677,11 @@
                 const planned = [];
                 for (const r of this.results) {
                     if (r['Status'] !== MATCH.FOUND) continue;
-                    const recIdx = (typeof r['RecommendedIndex'] === 'number') ? r['RecommendedIndex'] : 0;
+                    // Use the DYNAMIC best location, not the stale
+                    // RecommendedIndex from process time. This ensures Pull All
+                    // picks the box with the most copies right now, after any
+                    // previous pulls have depleted the recommended box.
+                    const recIdx = bestLocationIndex(r);
                     const loc = r.Locations && r.Locations[recIdx];
                     if (!loc || loc.quantity <= 0) continue;
                     const needed = r['Quantity'] || 1;
@@ -3814,8 +3841,10 @@
                     const canShowLocations = (row['Status'] === MATCH.FOUND || isAmbiguous) &&
                                              row['Locations'] && row['Locations'].length > 0;
                     if (canShowLocations) {
-                        const recommendedIdx = (typeof row['RecommendedIndex'] === 'number')
-                            ? row['RecommendedIndex'] : 0;
+                    // Compute the recommended location dynamically, based on
+                    // current quantities. This ensures the star follows the
+                    // best box, not the one chosen at process time.
+                    const recommendedIdx = bestLocationIndex(row);
                         const pullable = row['Status'] === MATCH.FOUND;
                         const locItems = row['Locations'].map((loc, idx) => {
                             const isDepleted = loc.quantity <= 0;
