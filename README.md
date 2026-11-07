@@ -39,6 +39,13 @@ so you can find it when a customer orders it.
   (W > U > B > R > G > multicolor > colorless > land), including cards
   that aren't in inventory yet, so you can pick a Devoid card by its
   printed color, not its rules-text "colorless."
+- **Audit dashboard** (`/audit.html`): reports for stale cards (not
+  touched in 90+ days), suspicious quantities (10+ of the same card in
+  the same box, boxes over 800 units), structurally broken rows, and
+  unknown scan dates.
+- **Soft-delete**: cards removed from the inventory aren't destroyed;
+  they're marked deleted and hidden. They appear in an audit report
+  ("Deleted cards") where they can be restored with one click.
 - **Append a scan batch**: upload a new scanned CSV and assign it to a box.
   The box is chosen by the user (e.g. `081826-2`, `LOTR`), not auto-assigned.
 - **Add a single card**: manually enter one card (name, set, number,
@@ -54,6 +61,42 @@ so you can find it when a customer orders it.
 - **Storage**: one live inventory, shared across all machines and locations.
 
 Full details in `/ARCHITECTURE.md`. Deployment in `/DEPLOY.md`.
+
+## Audit page
+
+The audit page lives at **`/audit.html`** (linked from the admin page).
+It's for maintaining trust in the current data: "I know some cards might
+be gone or misplaced, but I don't know which."
+
+Six reports:
+
+1. **Stale cards** (90+ days): cards with a known scan date that haven't
+   been pulled, moved, added, or verified in 90+ days. Filterable by box,
+   by set, and by name.
+2. **High-count duplicates**: the same card in the same box with quantity
+   10 or more. Usually means a miscount or a ghost.
+3. **Box totals**: cards and units per box. Over 800 units is flagged
+   (typical box capacity).
+4. **Structurally broken rows**: missing name, set, number, condition,
+   or box.
+5. **Unknown scan date**: cards whose box code didn't parse as a date
+   (e.g. `LOTR`, `NCC1701`). They can't be judged for staleness.
+6. **Deleted cards** (soft-delete): cards that have been marked deleted
+   but not purged. They can be restored.
+
+Each row has **Verify**, **Move**, **Edit**, and **Delete** actions, and
+each report supports **bulk actions** on checked rows.
+
+## Soft-delete
+
+Deleting a card from the audit page (or from any future UI) does **not**
+remove the row. It sets `cards.deleted_at` to a timestamp. Every read
+endpoint filters `deleted_at IS NULL`, so the card disappears from the
+inventory and from the audit reports — but the row is still in the
+database, and a `restore` event brings it back.
+
+The `delete` and `restore` events are both written to the trail, so the
+card's history shows "deleted at X" and "restored at Y."
 
 ## Admin page
 

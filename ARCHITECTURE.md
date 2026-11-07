@@ -30,6 +30,44 @@ that day). It is a free-form string.
 The `(tcgplayer_id, box)` pair is unique. That is the natural identity of a
 card in a specific box.
 
+### Scan dates
+
+Cards have a `scanned_on` date. It's set:
+
+- Automatically on `POST /api/append`, to the date of the append.
+- Automatically on `POST /api/cards/add`, to the date of the add.
+- From the box code on `POST /api/cards/backfill-scan-dates`, which parses
+  `MMDDYY` (5 or 6 digits, optionally `-N`-suffixed) and fills `scanned_on`
+  for rows where it's null. Boxes with non-numeric codes (`LOTR`,
+  `NCC1701`, etc.) stay null.
+- Manually on edit, if the user changes the box to a date-like value? No;
+  `scanned_on` is set once, and not editable through the edit form.
+
+The audit uses `scanned_on` to distinguish "stale because scanned long ago"
+from "stale but we don't know when." Cards with `scanned_on IS NULL` go
+in a separate report (Report E).
+
+### Soft-delete
+
+Cards have a `deleted_at` column. Delete is **soft**:
+
+- `POST /api/cards/delete` sets `deleted_at = datetime('now')` and writes
+  a `delete` event. The row is not removed.
+- Every read endpoint filters `WHERE deleted_at IS NULL`, so soft-deleted
+  cards disappear from the inventory, the audit, and the pulling UI.
+- `POST /api/cards/restore` clears `deleted_at` and writes a `restore`
+  event.
+
+This is a deliberate design choice. Hard deletes are one click away from
+permanent data loss, and we've had that bug: a test delete removed 13
+cards that had to be reconstructed from the source CSV. The 13 were
+recoverable, but only because we had `inventory.csv`. Soft-delete makes
+that recovery a one-click operation instead of a forensic exercise.
+
+Hard-purge is not currently exposed. If rows need to be truly removed
+(e.g. to reclaim space after a bad import), that's a separate operation
+with its own confirmation.
+
 ### Synthetic IDs
 
 When the scanner can't confidently match a card to TCGplayer, the CSV comes
@@ -378,6 +416,14 @@ Base path `/api`. All responses are JSON except `GET /api/inventory` (CSV).
   Body: `{ updates: [{ tcgplayer_id, box, total_quantity }] }`. Requires key.
 - `GET /api/batches` - scan batch list (`box`, `scanned_on`, `row_count`).
   No auth.
+- `GET /api/audit` - read-only audit data: cards, per-card latest event,
+  box totals. Filters out soft-deleted cards. No auth.
+- `POST /api/cards/verify` - writes a `verify` event. Requires key.
+- `POST /api/cards/delete` - soft-deletes one or more cards. Requires key.
+- `POST /api/cards/restore` - restores soft-deleted cards. Requires key.
+- `GET /api/cards/deleted` - lists soft-deleted cards. No auth.
+- `POST /api/cards/backfill-scan-dates` - one-time backfill of `scanned_on`
+  from box codes. Requires key.
 
 ### CORS
 
@@ -495,12 +541,27 @@ the Worker URL.
 
 - Initial: card locator only (static HTML).
 - v2: Cloudflare Worker + D1, live inventory shared across machines.
-- Current: synthetic IDs, quantity summing, strict mode, cleanup of
-  diagnostics.
+- v3: event trail, ghost hints, moves, bulk moves, edits, manual add,
+  scan append with user-chosen box, pull by order.
+- Current: audit dashboard, `scanned_on` (backfilled from box codes),
+  soft-delete with restore, color-sort via Scryfall with `color_identity`
+  (correct for Devoid cards).
 
 ## Open questions
 
 - Should box code normalization (081826 vs 81826) be applied to the data?
-  Deferred. The app treats them as distinct strings.
-- Should writes record a free-text "who" for auditing?
-- Should `raw` be populated as a separate table, one row per card?
+  Deferred. The app treats them as distinct strings, but the audit's
+  `scanned_on` backfill treats both as the same date.
+- Should writes record a free-text "who" for auditing? Every action has
+  a timestamp, but not an author.
+- Should `raw` be populated as a separate table, one row per card? The
+  column exists, but is currently unused; it was never populated for
+  existing rows, and new imports don't fill it. A separate table would
+  be cleaner than a wide column.
+- Should hard-purge be exposed (vs. soft-delete)? Currently only soft-
+  delete is exposed, and rows accumulate. A "trash" view with a
+  "purge forever" action would close the loop.
+- Should `scanned_on` be editable? Currently set once at import/add.
+  If the box code changes (e.g. a card is moved to a new box with a new
+  date), `scanned_on` stays the same, which is arguably correct
+  ("when it entered inventory") but might confuse future audits.
