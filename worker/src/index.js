@@ -742,6 +742,32 @@ async function handleDeletedList(env) {
   return Response.json({ cards: cards });
 }
 
+// Record a 'missing' event: someone went to the box and the card wasn't there.
+// Does NOT change cards.box. Body: { tcgplayer_id, box, note? }.
+async function handleMissing(req, env) {
+  let body;
+  try { body = await req.json(); } catch (e) {
+    return Response.json({ ok: false, error: 'Body must be JSON' }, { status: 400 });
+  }
+  const { tcgplayer_id, box, note } = body || {};
+  if (!tcgplayer_id || !box) {
+    return Response.json({ ok: false, error: 'tcgplayer_id and box are required' }, { status: 400 });
+  }
+  const db = env.DB.withSession('first-primary');
+  try {
+    await db.prepare(
+      'INSERT INTO events (tcgplayer_id, kind, box_from, quantity, source, metadata) ' +
+      'VALUES (?, ?, ?, ?, ?, ?)'
+    ).bind(
+      String(tcgplayer_id), 'missing', String(box), null, 'live',
+      note ? JSON.stringify({ note: String(note) }) : null
+    ).run();
+    return Response.json({ ok: true });
+  } catch (e) {
+    return Response.json({ ok: false, error: String(e && e.message || e) }, { status: 500 });
+  }
+}
+
 async function handleBatches(env) {
   const res = await env.DB.prepare('SELECT box, scanned_on, row_count FROM scan_batches ORDER BY box').all();
   return Response.json({ batches: res.results || [] });
@@ -922,6 +948,10 @@ async function handleRequest(req, env) {
     if (path === '/api/cards/verify' && req.method === 'POST') {
       if (!(await checkWriteKey(req, env))) return withCors(new Response('Forbidden', { status: 403 }));
       return withCors(await handleVerify(req, env));
+    }
+    if (path === '/api/cards/missing' && req.method === 'POST') {
+      if (!(await checkWriteKey(req, env))) return withCors(new Response('Forbidden', { status: 403 }));
+      return withCors(await handleMissing(req, env));
     }
     if (path === '/api/cards/backfill-scan-dates' && req.method === 'POST') {
       if (!(await checkWriteKey(req, env))) return withCors(new Response('Forbidden', { status: 403 }));

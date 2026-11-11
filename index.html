@@ -287,12 +287,23 @@
             #printContent { display: block !important; }
             #mainContent { display: none !important; }
             
-            .print-picking-item { 
-                padding: 8px 12px; 
+            .print-picking-item {
+                padding: 8px 12px;
                 border-bottom: 1px solid #eee;
-                display: flex;
-                justify-content: space-between;
+                display: grid;
+                grid-template-columns: 24px 1fr 140px;
                 align-items: center;
+                gap: 8px;
+            }
+            .print-picking-item .print-checkbox {
+                font-size: 18px;
+                text-align: center;
+                color: #444;
+                line-height: 1;
+            }
+            .print-picking-item .print-notes {
+                border-bottom: 1px solid #999;
+                min-height: 18px;
             }
             .print-picking-item .card-name { font-weight: 600; }
             .print-picking-item .card-details { color: #555; font-size: 13px; }
@@ -565,6 +576,10 @@
                 
                 <div class="card">
                     <div class="toolbar no-print">
+                        <select class="select-box" id="sortModeFilter" title="Sort by">
+                            <option value="box" selected>📦 Sort by box</option>
+                            <option value="order">📋 Sort by order</option>
+                        </select>
                         <select class="select-box" id="statusFilter">
                             <option value="all">All</option>
                             <option value="Found">✅ Found</option>
@@ -1853,6 +1868,8 @@
                 });
                 
                 this.statusFilter.addEventListener('change', () => this.render());
+                const sortModeSel = document.getElementById('sortModeFilter');
+                if (sortModeSel) sortModeSel.addEventListener('change', () => this.render());
                 this.qtyFilter.addEventListener('change', () => this.render());
             }
             
@@ -1921,6 +1938,93 @@
                         self.render();
                     });
                 }
+            }
+
+            getSortMode() {
+                var sel = document.getElementById('sortModeFilter');
+                return sel ? sel.value : 'box';
+            }
+
+            // Build a flat sequence of items for rendering: group headers
+            // and rows, interleaved. Two modes:
+            //   'box':   one group per box, sorted by box, then by name.
+            //   'order': one group per order token, sub-groups per box.
+            // Unallocated rows go in a 'No order' group.
+            groupResultsForRender(rows) {
+                var mode = this.getSortMode();
+                var out = [];
+
+                // Resolve which box(es) and which order(s) each row belongs to.
+                function boxOf(r) {
+                    var locs = r.Locations || [];
+                    if (locs[0] && locs[0].location) return String(locs[0].location);
+                    return '(no box)';
+                }
+                function ordersOf(r) {
+                    var os = r.__orders || [];
+                    if (os.length === 0) return [null];
+                    var tokens = [];
+                    for (var i = 0; i < os.length; i++) {
+                        if (os[i] && os[i].token) tokens.push(String(os[i].token));
+                    }
+                    return tokens.length > 0 ? tokens : [null];
+                }
+                function compareByName(a, b) {
+                    var an = String((a['Pull Sheet Name'] || a['Clean Name'] || '') + '').toLowerCase();
+                    var bn = String((b['Pull Sheet Name'] || b['Clean Name'] || '') + '').toLowerCase();
+                    return an.localeCompare(bn);
+                }
+
+                if (mode === 'order') {
+                    // Build order -> box -> rows.
+                    var byOrder = {};
+                    for (var i = 0; i < rows.length; i++) {
+                        var r = rows[i];
+                        var tokens = ordersOf(r);
+                        for (var t = 0; t < tokens.length; t++) {
+                            var tok = tokens[t];
+                            var ok = tok == null ? '__unallocated__' : tok;
+                            if (!byOrder[ok]) byOrder[ok] = {};
+                            var b = boxOf(r);
+                            if (!byOrder[ok][b]) byOrder[ok][b] = [];
+                            byOrder[ok][b].push(r);
+                        }
+                    }
+                    var orderKeys = Object.keys(byOrder).sort();
+                    for (var oi = 0; oi < orderKeys.length; oi++) {
+                        var ok2 = orderKeys[oi];
+                        var label = ok2 === '__unallocated__' ? '📋 No order' : '📋 Order ' + ok2;
+                        out.push({ kind: 'order-header', label: label });
+                        var boxKeys = Object.keys(byOrder[ok2]).sort();
+                        for (var bi = 0; bi < boxKeys.length; bi++) {
+                            var bk = boxKeys[bi];
+                            out.push({ kind: 'group', label: '📦 ' + bk });
+                            var arr = byOrder[ok2][bk].slice().sort(compareByName);
+                            for (var ai = 0; ai < arr.length; ai++) {
+                                out.push({ kind: 'row', row: arr[ai] });
+                            }
+                        }
+                    }
+                } else {
+                    // 'box': one group per box, sorted by box name.
+                    var byBox = {};
+                    for (var j = 0; j < rows.length; j++) {
+                        var rj = rows[j];
+                        var bj = boxOf(rj);
+                        if (!byBox[bj]) byBox[bj] = [];
+                        byBox[bj].push(rj);
+                    }
+                    var boxKeys2 = Object.keys(byBox).sort();
+                    for (var bi2 = 0; bi2 < boxKeys2.length; bi2++) {
+                        var bk2 = boxKeys2[bi2];
+                        out.push({ kind: 'group', label: '📦 ' + bk2 });
+                        var arr2 = byBox[bk2].slice().sort(compareByName);
+                        for (var ai2 = 0; ai2 < arr2.length; ai2++) {
+                            out.push({ kind: 'row', row: arr2[ai2] });
+                        }
+                    }
+                }
+                return out;
             }
 
             getFocusedResults() {
@@ -3530,11 +3634,20 @@
                     if (nm && this.nameToId && this.nameToId[nm]) id = this.nameToId[nm];
                 }
                 if (!id) {
-                    this.setStatus('error', 'Move failed', 'Could not identify the card', '❌');
+                    this.setStatus('error', 'Action failed', 'Could not identify the card', '❌');
                     return;
                 }
                 const cardName = row['Pull Sheet Name'] || row['Clean Name'] || row['Search Query'] || '';
-                const reason = mode === 'notfound' ? 'not in expected box' : 'manual';
+
+                if (mode === 'notfound') {
+                    // "I looked and it wasn't there." We do NOT prompt for a
+                    // destination box, because the user doesn't know where it
+                    // is. Instead, record a 'missing' event with an optional
+                    // note. The audit will surface it for review.
+                    this.markMissing(String(id), String(fromBox), String(cardName));
+                    return;
+                }
+
                 const anchor = event && event.target && event.target.getBoundingClientRect
                     ? event.target.getBoundingClientRect()
                     : null;
@@ -3543,9 +3656,50 @@
                     fromBox: String(fromBox),
                     cardName: String(cardName),
                     mode: mode,
-                    reason: reason,
+                    reason: 'manual',
                     anchor: anchor
                 });
+            }
+
+            async markMissing(tcgplayerId, fromBox, cardName) {
+                if (!API_BASE) { this.setStatus('error', 'Missing unavailable', 'Server not connected', '❌'); return; }
+                const key = this.getWriteKey();
+                if (!key) { this.setStatus('error', 'No write key', 'Write key is required', '❌'); return; }
+                const note = prompt('Mark "' + cardName + '" as missing from box ' + fromBox + '?\\n\\nOptionally add a note (e.g. "checked twice"):', '');
+                if (note === null) return; // user cancelled
+                this.setStatus('loading', 'Recording missing...', cardName, '⏳');
+                try {
+                    const resp = await fetch(API_BASE + '/api/cards/missing', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-Write-Key': key },
+                        body: JSON.stringify({ tcgplayer_id: tcgplayerId, box: fromBox, note: note || null })
+                    });
+                    if (!resp.ok) {
+                        const text = await resp.text();
+                        if (/403|Forbidden/i.test(text)) this.forgetWriteKey();
+                        this.setStatus('error', 'Missing failed', text, '❌');
+                        return;
+                    }
+                    this.rememberWriteKey(key);
+                    this.setStatus('success', 'Marked missing', cardName + ' in ' + fromBox, '✅');
+                    // Tag the row in-memory so it can show a "missing" badge.
+                    if (this.results) {
+                        for (const r of this.results) {
+                            let rid = null;
+                            if (r.OriginalItem) rid = r.OriginalItem['TCGplayer Id'] || r.OriginalItem['TCGplayerId'] || r.OriginalItem['Id'];
+                            if (!rid) {
+                                const nm = String(r['Search Query'] || r['Clean Name'] || '').toLowerCase().trim();
+                                if (nm && this.nameToId && this.nameToId[nm]) rid = this.nameToId[nm];
+                            }
+                            if (rid && String(rid) === tcgplayerId) {
+                                r['__missing'] = { box: fromBox, note: note || null, at: new Date().toISOString() };
+                            }
+                        }
+                    }
+                    this.render();
+                } catch (e) {
+                    this.setStatus('error', 'Missing failed', String(e && e.message || e), '❌');
+                }
             }
 
             openMovePicker(ctx) {
@@ -3813,7 +3967,17 @@
                         <th>Stock</th>
                     </tr></thead><tbody>`;
                 
-                for (const row of filtered) {
+                const groupedItems = this.groupResultsForRender(filtered);
+                for (const item of groupedItems) {
+                    if (item.kind === 'order-header') {
+                        html += `<tr class="group-header"><td colspan="11" style="background:#1a1a2e;color:white;font-weight:700;padding:10px;">${escapeHtml(item.label)}</td></tr>`;
+                        continue;
+                    }
+                    if (item.kind === 'group') {
+                        html += `<tr class="group-header"><td colspan="11" style="background:#e0e7ff;color:#1a1a2e;font-weight:700;padding:10px;">${escapeHtml(item.label)}</td></tr>`;
+                        continue;
+                    }
+                    const row = item.row;
                     // Index of this row in the master results array. filtered holds
                     // the same object references as this.results, so indexOf is exact.
                     const resultIndex = this.results.indexOf(row);
@@ -3901,6 +4065,10 @@
                     // Ghost hint: show the most recent pull event for this card,
                     // so the walker knows where it was last seen. The hint is
                     // populated asynchronously by refreshEventHints().
+                    if (row.__missing) {
+                        const noteText = row.__missing.note ? ' — ' + escapeHtml(row.__missing.note) : '';
+                        locationDisplay += `<div style="font-size:11px;color:#b91c1c;margin-top:4px;font-weight:600;">🚩 Marked missing from ${escapeHtml(row.__missing.box)}${noteText}</div>`;
+                    }
                     if (row['EventHint']) {
                         const definitive = !!row.OriginalItem;
                         const label = definitive ? 'last pulled from' : 'last pulled (any printing) from';
@@ -4105,91 +4273,64 @@
                 `;
                 document.getElementById('printSummary').innerHTML = summaryHTML;
                 
-                const allItems = [...flattenedPulled, ...flattenedFound, ...flattenedNotFound];
-                
+                // Group by the current sort mode (box or order). The print output
+                // mirrors the screen.
+                const groupedItems = this.groupResultsForRender(focusedResults);
+
                 let html = '';
                 let totalPicks = 0;
-                
-                const grouped = {};
-                for (const item of allItems) {
-                    const key = item.Location || 'Unknown';
-                    if (!grouped[key]) grouped[key] = [];
-                    grouped[key].push(item);
-                }
-                
-                for (const [location, items] of Object.entries(grouped).sort()) {
-                    const isPulled = items.some(i => i.IsPulled);
-                    const isNotFound = location === '❌ NOT FOUND';
-                    const safeLocation = escapeHtml(location);
-                    
-                    // Sort within the box by MTG color order (W U B R G multi colorless land),
-                    // falling back to name for ties or unknown cards. Applies to the
-                    // NOT FOUND group too, so the "cards to track down" list is color-ordered.
-                    items.sort((a, b) => {
-                        const ra = rankOf(a);
-                        const rb = rankOf(b);
-                        if (ra !== rb) return ra - rb;
-                        return String(a['Name'] || '').localeCompare(String(b['Name'] || ''));
-                    });
-                    
-                    if (isNotFound) {
-                        html += `<div class="print-box-header" style="border-left-color: #ef4444;">❌ ${safeLocation}</div>`;
-                    } else if (isPulled) {
-                        html += `<div class="print-box-header" style="border-left-color: #f59e0b;">📦 ${safeLocation} (Pulled)</div>`;
-                    } else {
-                        html += `<div class="print-box-header">📦 ${safeLocation}</div>`;
-                    }
 
-                    // Color section counts within this box, in sort order.
-                    const sectionCounts = {};
-                    for (const it of items) {
-                        const sec = colorSectionFor(it);
-                        sectionCounts[sec] = (sectionCounts[sec] || 0) + 1;
+                for (const item of groupedItems) {
+                    if (item.kind === 'order-header') {
+                        html += `<div style="margin:18px 0 8px 0;padding:10px 14px;background:#1a1a2e;color:white;border-radius:6px;font-weight:700;font-size:16px;">${escapeHtml(item.label)}</div>`;
+                        continue;
                     }
-                    
-                    let currentSection = null;
-                    for (const item of items) {
-                        const section = colorSectionFor(item);
-                        if (section !== currentSection) {
-                            currentSection = section;
-                            html += `<div style="margin:10px 0 4px 0;padding:4px 10px;background:#f0f2f5;border-radius:6px;font-weight:700;font-size:14px;color:#1a1a2e;">${section} (${sectionCounts[section] || 0})</div>`;
-                        }
-                        totalPicks++;
-                        const stockStatus = item['IsPulled'] ? 
-                            `<span style="color: #f59e0b;">📦 Pulled ${item['PulledQty'] || 1}</span>` :
-                            (item['Stock Status'] === STOCK.LOW || item['Stock Status'] === STOCK.OUT ?
-                                `<span style="color: #f59e0b;">⚠️ Only ${item['Available Qty']} available</span>` : 
-                                `<span style="color: #22c55e;">✅ ${item['Available Qty']} in stock</span>`);
-                        
-                        const details = [];
-                        if (item['Set']) details.push(escapeHtml(item['Set']));
-                        if (item['Number']) details.push(`#${escapeHtml(item['Number'])}`);
-                        if (item['Condition']) details.push(escapeHtml(item['Condition']));
-                        const detailStr = details.length > 0 ? `• ${details.join(' • ')}` : '';
-                        
-                        const warnNote = item['IdentityWarning']
-                            ? `<div style="font-size:11px;color:#b45309;margin-top:2px;">⚠ ${escapeHtml(item['IdentityWarning'])}</div>`
-                            : '';
-                        
-                        html += `
-                            <div class="print-picking-item" style="${item['IsPulled'] ? 'border-left: 3px solid #f59e0b; background: #fffbeb;' : ''}">
-                                <div>
-                                    <span style="font-weight:600;margin-right:10px;">${totalPicks}.</span>
-                                    ${currentSection === 'Multicolor' && colorLettersFor(item) ? `<span style="font-weight:700;color:#1a1a2e;background:#e5e7eb;border-radius:3px;padding:0 5px;margin-right:6px;font-size:12px;">${colorLettersFor(item)}</span>` : ''}
-                                    <span class="card-name">${escapeHtml(item['Name'])}</span>
-                                    <span class="card-details">${detailStr}</span>
-                                    ${warnNote}
-                                    ${item['IsPulled'] ? '<span style="color: #f59e0b; margin-left:10px; font-weight:600;">📦 PULLED</span>' : ''}
-                                </div>
-                                <div style="display:flex;align-items:center;gap:15px;">
-                                    <span style="font-weight:600;">Qty: ${item['Quantity']}</span>
-                                    ${stockStatus}
-                                </div>
+                    if (item.kind === 'group') {
+                        html += `<div class="print-box-header">${escapeHtml(item.label)}</div>`;
+                        continue;
+                    }
+                    const row = item.row;
+                    const pulled = !!row['IsPulled'];
+                    const qty = row['Quantity'] || 1;
+                    const avail = row['Total Available'] || row['Available Qty'] || 0;
+
+                    totalPicks++;
+                    // Plain text stock status. No emoji, no checkmarks. The
+                    // number tells you what you need.
+                    const stockStatus = pulled
+                        ? `<span style="color: #f59e0b;">Pulled</span>`
+                        : (avail <= 0
+                            ? `<span style="color: #ef4444;">0 in stock</span>`
+                            : (row['Stock Status'] === STOCK.LOW
+                                ? `<span style="color: #f59e0b;">${avail} in stock</span>`
+                                : `<span style="color: #22c55e;">${avail} in stock</span>`));
+
+                    const details = [];
+                    if (row['Set']) details.push(escapeHtml(row['Set']));
+                    if (row['Number']) details.push('#' + escapeHtml(row['Number']));
+                    if (row['Condition']) details.push(escapeHtml(row['Condition']));
+                    const detailStr = details.length > 0 ? '• ' + details.join(' • ') : '';
+
+                    const warnNote = row['IdentityWarning']
+                        ? `<div style="font-size:11px;color:#b45309;margin-top:2px;">⚠ ${escapeHtml(row['IdentityWarning'])}</div>`
+                        : '';
+
+                    html += `
+                        <div class="print-picking-item" style="${pulled ? 'border-left: 3px solid #f59e0b; background: #fffbeb;' : ''}">
+                            <div class="print-checkbox">&#9744;</div>
+                            <div>
+                                <span style="font-weight:600;margin-right:10px;">${totalPicks}.</span>
+                                <span class="card-name">${escapeHtml(row['Pull Sheet Name'] || row['Clean Name'] || row['Search Query'] || '')}</span>
+                                <span class="card-details">${detailStr}</span>
+                                ${warnNote}
+                                ${pulled ? '<span style="color: #f59e0b; margin-left:10px; font-weight:600;">PULLED</span>' : ''}
+                                <span style="margin-left:10px;font-size:12px;color:#555;">Qty: ${qty} &nbsp; ${stockStatus}</span>
                             </div>
-                        `;
-                    }
+                            <div class="print-notes"></div>
+                        </div>
+                    `;
                 }
-                
+
                 document.getElementById('printPickingList').innerHTML = html;
                 document.getElementById('printNotFoundList').innerHTML = '';
                 

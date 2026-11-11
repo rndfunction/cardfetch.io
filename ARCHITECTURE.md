@@ -83,7 +83,8 @@ difference between "where is this card now" and "where has it been and why."
 Columns:
 
 - `tcgplayer_id` (the card's stable id, including synthetic `local:` ids)
-- `kind` — `'pull'`, `'move'`, or `'add'`
+- `kind` — `'pull'`, `'move'`, `'add'`, `'edit'`, `'delete'`, `'restore'`,
+  `'verify'`, or `'missing'`
 - `box_from` — the box it was in (for pull and move; null for add)
 - `box_to` — the box it went to (for move and add; null for pull)
 - `order_token` — the order it was pulled for, if known (from the pull sheet)
@@ -234,6 +235,41 @@ After a move (single or bulk), the app updates the in-memory result rows
 and it broke the advanced-search flow (quick lookup would ignore the
 advanced form). If you ever add another action that changes a row's state,
 follow the same pattern: update the in-memory result, then `render()`.
+
+## Missing cards
+
+A `missing` event is a record of "I went to the box and the card wasn't
+there." It's different from a move, and it's different from a delete:
+
+- A **move** says "the card is now in box B."
+- A **delete** says "remove this card from inventory."
+- A **missing** says "I couldn't find it where the app said it would be.
+  It might be there, it might be somewhere else, or it might be gone.
+  Please flag it for review."
+
+The `missing` event carries:
+
+- `tcgplayer_id` — the card.
+- `box_from` — **where it was supposed to be**. This is the most important
+  field. When someone re-checks, they know which box to look in.
+- `quantity` — null (we don't know).
+- `metadata` — optional `{ note }` with a short human note.
+- `source` — `live`.
+
+**`cards.box` is not changed.** The card stays in its current box. The
+event is *informational*, not a state change. This is deliberate: the
+card is probably still in that box, just hidden behind another card, or
+maybe it was actually moved and nobody recorded it. Either way, the
+inventory shouldn't lie about what we know.
+
+A `missing` event is **cleared** by any subsequent event of kind
+`verify`, `move`, `edit`, `delete`, or `restore` for the same card.
+That's the "somebody looked at it and resolved it" case. The simplest
+resolution is a `verify`, which is what the audit's "Clear (verified)"
+button does.
+
+The **audit Report H** shows currently-missing cards: name, set, #,
+intended box, current box, note, days since flagged, and a Clear button.
 
 ## History and ghost hints
 
@@ -403,6 +439,93 @@ If Scryfall is unreachable, the fetch fails silently, and cards not in the
 static cache print as "Unsorted." This is no worse than before, and
 strictly better for the common case.
 
+## Sort and group
+
+The results table and the printed picking list both use the **same
+grouping** logic, so what you see is what you print.
+
+`groupResultsForRender(rows)` returns a flat sequence of items: either a
+header (`{ kind: 'order-header', label }` or `{ kind: 'group', label }`)
+or a row (`{ kind: 'row', row }`). Two modes, controlled by the
+`sortModeFilter` dropdown:
+
+- **box** (default): one `group` per physical box, rows sorted by name
+  within each box.
+- **order**: one `order-header` per order token (or `No order` for
+  unallocated cards), then one `group` per box within that order, then
+  rows sorted by name.
+
+The render loop in `render()` iterates the flat sequence and emits a
+header row (`<tr class="group-header">`) or a normal row for each item.
+
+`printPickingList()` iterates the same sequence, so the printed output
+has the same headers in the same order. That's the "print mirrors
+screen" invariant.
+
+**Do not add grouping logic in two places.** If you need to change how
+rows group (e.g. add a third mode), change `groupResultsForRender`, and
+both the screen and the print will follow.
+
+## Print worksheet
+
+The printed picking list is a worksheet for a physical pull. Each card
+row has three columns:
+
+- A **pre-printed checkbox** (`&#9744;`). Staff check it off with a pen.
+- The card details (name, set, number, condition, quantity, stock
+  status). Stock status is plain text (`N in stock`, `0 in stock`,
+  `Pulled`), no emoji.
+- A **blank notes line**. Staff write "condition issue," "moved to box
+  X," "couldn't find," etc.
+
+At the bottom of a shift, the checked sheet with notes is the report.
+
+The print CSS uses `display: grid` with `grid-template-columns: 24px
+1fr 140px` on `.print-picking-item`, so the three columns line up
+across rows even when card names vary in length.
+
+## Audit page
+
+`/audit.html` is the maintenance dashboard. It's separate from the main
+app and the admin page, and it's linked from the admin page header.
+
+Seven reports:
+
+- **Report A: Stale.** Cards with a `scanned_on` date and no `pull`,
+  `move`, `add`, or `verify` event in 90+ days. Has filters (box, set,
+  name), a "Show all cards" toggle, a "Sort by color" toggle, and per-row
+  Verify/Move/Edit/Delete with bulk actions.
+- **Report B: High-count duplicates.** Cards with `total_quantity >= 10`
+  in the same box. Usually means a miscount or a ghost.
+- **Report C: Box totals.** Cards and units per box. Over 800 units is
+  flagged. Has a **stock check** tool: pick a box, sample 10 random cards,
+  verify each with a button. Also has a color-sorted toggle.
+- **Report D: Structurally broken rows.** Missing name, set, number,
+  condition, or box.
+- **Report E: Unknown scan date.** `scanned_on IS NULL`. Typically boxes
+  with custom names (`LOTR`, `NCC1701`) that the box-code parser can't
+  date.
+- **Report F: Deleted cards.** Soft-deleted cards (see "Soft-delete"
+  below), with restore in bulk.
+- **Report G: Recently verified.** Cards with a `verify` event within a
+  time window (7 / 30 / 90 / 365 days). Shows when and in which box.
+
+The audit page uses these endpoints:
+
+- `GET /api/audit` — cards, per-card latest events, box totals.
+- `POST /api/cards/verify` — writes a `verify` event.
+- `POST /api/cards/delete` — soft-deletes one or more cards.
+- `POST /api/cards/restore` — restores soft-deleted cards.
+- `GET /api/cards/deleted` — lists soft-deleted cards.
+- `PATCH /api/cards/edit` — edits one card's fields.
+- `PATCH /api/cards/move` — moves one card.
+- `PATCH /api/cards/move-bulk` — moves many cards at once.
+
+The color cache used by "Sort by color" is shared with the main app via
+`localStorage` (`forge-scryfall-colors-v1`). It's populated lazily by
+the "Fetch colors" button (batched Scryfall calls) and by the main app's
+`ensureColorsForCards()`.
+
 ## API
 
 Base path `/api`. All responses are JSON except `GET /api/inventory` (CSV).
@@ -419,6 +542,8 @@ Base path `/api`. All responses are JSON except `GET /api/inventory` (CSV).
 - `GET /api/audit` - read-only audit data: cards, per-card latest event,
   box totals. Filters out soft-deleted cards. No auth.
 - `POST /api/cards/verify` - writes a `verify` event. Requires key.
+- `POST /api/cards/missing` - writes a `missing` event with `box_from`
+  and optional `metadata.note`. Does not change `cards.box`. Requires key.
 - `POST /api/cards/delete` - soft-deletes one or more cards. Requires key.
 - `POST /api/cards/restore` - restores soft-deleted cards. Requires key.
 - `GET /api/cards/deleted` - lists soft-deleted cards. No auth.

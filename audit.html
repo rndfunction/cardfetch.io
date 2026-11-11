@@ -43,6 +43,11 @@
   .badge-warn { background: #fef3c7; color: #92400e; }
   .badge-danger { background: #fee2e2; color: #991b1b; }
   .badge-ok { background: #dcfce7; color: #166534; }
+  .report-card h2 { cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center; }
+  .report-card h2 .toggle-icon { font-size: 0.8rem; color: #9ca3af; transition: transform 0.2s; }
+  .report-card.collapsed h2 .toggle-icon { transform: rotate(-90deg); }
+  .report-card.collapsed .report-body { display: none; }
+  .report-card.collapsed p { display: none; }
   .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: none; align-items: center; justify-content: center; z-index: 1000; }
   .modal-bg.visible { display: flex; }
   .modal { background: white; border-radius: 10px; padding: 20px; width: 500px; max-height: 80vh; overflow-y: auto; }
@@ -70,15 +75,25 @@
   </div>
 
   <!-- Report A: Stale -->
-  <div class="card">
-    <h2>Report A — Stale cards (90+ days)</h2>
+  <div class="card report-card">
+    <h2 onclick="this.closest('.report-card').classList.toggle('collapsed')">Report A — Stale cards (90+ days) <span class="toggle-icon">▼</span></h2>
     <p>Cards that haven't been pulled, moved, added, or verified in 90+ days. Worth a physical check (and a pricing review).</p>
+    <div class="report-body">
     <div class="toolbar">
       <select class="filter" id="filterBoxA" style="flex:0 0 auto;min-width:140px;">
         <option value="">All boxes</option>
       </select>
       <input type="text" class="filter" id="filterSetA" placeholder="Set name..." style="flex:0 0 auto;min-width:160px;">
       <input type="text" class="filter" id="filterA" placeholder="Card name...">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;white-space:nowrap;cursor:pointer;">
+        <input type="checkbox" id="showAllA">
+        Show all cards
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;white-space:nowrap;cursor:pointer;">
+        <input type="checkbox" id="sortByColorA">
+        Sort by color
+      </label>
+      <button class="btn btn-secondary btn-sm" id="fetchColorsBtnA" type="button">🎨 Fetch colors for visible</button>
     </div>
     <div class="toolbar" id="bulkActionsA" style="background:#f9fafb;padding:8px 10px;border-radius:6px;margin-bottom:8px;">
       <span id="bulkCountA" style="font-size:12px;font-weight:600;color:#374151;">0 selected</span>
@@ -89,45 +104,94 @@
       <button class="btn btn-secondary btn-sm" id="clearSelectedA" style="margin-left:auto;">Clear</button>
     </div>
     <div id="reportA"></div>
-  </div>
+    </div><!-- /report-body -->
+  </div><!-- /card -->
 
   <!-- Report B: High-count duplicates -->
-  <div class="card">
-    <h2>Report B — High-count duplicates</h2>
+  <div class="card report-card">
+    <h2 onclick="this.closest('.report-card').classList.toggle('collapsed')">Report B — High-count duplicates <span class="toggle-icon">▼</span></h2>
     <p>Same card, same box, quantity 10 or more. Either you really have that many, or something's double-counted.</p>
-    <div id="reportB"></div>
-  </div>
+    <div class="report-body">
+      <div id="reportB"></div>
+    </div><!-- /report-body -->
+  </div><!-- /card -->
 
   <!-- Report C: Box totals -->
-  <div class="card">
-    <h2>Report C — Box totals</h2>
+  <div class="card report-card">
+    <h2 onclick="this.closest('.report-card').classList.toggle('collapsed')">Report C — Box totals <span class="toggle-icon">▼</span></h2>
     <p>Cards and units per box. Boxes over 800 units are flagged (typical box capacity).</p>
-    <div id="reportC"></div>
-  </div>
+    <div class="report-body">
+      <div class="toolbar" style="background:#f9fafb;padding:8px 10px;border-radius:6px;margin-bottom:10px;">
+        <select class="filter" id="stockCheckBox" style="flex:0 0 auto;min-width:160px;">
+          <option value="">Choose a box...</option>
+        </select>
+        <button class="btn btn-primary btn-sm" id="stockCheckBtn" type="button">🎲 Stock check</button>
+        <button class="btn btn-secondary btn-sm" id="stockShuffleBtn" type="button">↻ Shuffle</button>
+        <span id="stockCheckStatus" style="font-size:12px;color:#6b7280;"></span>
+      </div>
+      <div id="stockCheckList" style="margin-bottom:12px;"></div>
+      <div id="reportC"></div>
+    </div><!-- /report-body -->
+  </div><!-- /card -->
 
   <!-- Report D: Structurally broken -->
-  <div class="card">
-    <h2>Report D — Structurally broken rows</h2>
+  <div class="card report-card">
+    <h2 onclick="this.closest('.report-card').classList.toggle('collapsed')">Report D — Structurally broken rows <span class="toggle-icon">▼</span></h2>
     <p>Missing name, set, number, condition, or box. These should not exist.</p>
-    <div id="reportD"></div>
-  </div>
+    <div class="report-body">
+      <div id="reportD"></div>
+    </div><!-- /report-body -->
+  </div><!-- /card -->
 
   <!-- Report E: Unknown scan date -->
-  <div class="card">
-    <h2>Report E — Unknown scan date</h2>
+  <div class="card report-card">
+    <h2 onclick="this.closest('.report-card').classList.toggle('collapsed')">Report E — Unknown scan date <span class="toggle-icon">▼</span></h2>
     <p>Cards whose box code didn't parse as a date (e.g. <code>LOTR</code>, <code>NCC1701</code>). These can't be judged for staleness. Consider adding a <code>scanned_on</code> value manually if you know it.</p>
-    <div id="reportE"></div>
-  </div>
+    <div class="report-body">
+      <div id="reportE"></div>
+    </div><!-- /report-body -->
+  </div><!-- /card -->
+
+  <!-- Report G: Recently verified -->
+  <div class="card report-card">
+    <h2 onclick="this.closest('.report-card').classList.toggle('collapsed')">Report G — Recently verified <span class="toggle-icon">▼</span></h2>
+    <p>Cards you've physically checked recently. Shows what's been verified, when, and in which box. Useful for confirming coverage before a big pull day.</p>
+    <div class="report-body">
+      <div class="toolbar">
+        <label style="font-size:12px;color:#374151;">
+          Verified in the last
+          <select class="filter" id="verifiedWindow" style="flex:0 0 auto;min-width:100px;">
+            <option value="7">7 days</option>
+            <option value="30" selected>30 days</option>
+            <option value="90">90 days</option>
+            <option value="365">365 days</option>
+          </select>
+        </label>
+      </div>
+      <div id="reportG"></div>
+    </div><!-- /report-body -->
+  </div><!-- /card -->
+
+  <!-- Report H: Missing -->
+  <div class="card report-card">
+    <h2 onclick="this.closest('.report-card').classList.toggle('collapsed')">Report H — Missing cards <span class="toggle-icon">▼</span></h2>
+    <p>Cards flagged as "not there" during a pull. Shows where the card was <em>supposed</em> to be, so you can re-check the same box before assuming it's gone.</p>
+    <div class="report-body">
+      <div id="reportH"></div>
+    </div><!-- /report-body -->
+  </div><!-- /card -->
 
   <!-- Report F: Deleted (soft-delete) -->
-  <div class="card">
-    <h2>Report F — Deleted cards (recoverable)</h2>
+  <div class="card report-card">
+    <h2 onclick="this.closest('.report-card').classList.toggle('collapsed')">Report F — Deleted cards (recoverable) <span class="toggle-icon">▼</span></h2>
     <p>Cards that have been soft-deleted. They're hidden from the main inventory but still in the database. Restore to bring them back.</p>
-    <div class="toolbar">
-      <button class="btn btn-secondary btn-sm" id="restoreSelectedF">↩️ Restore selected</button>
-    </div>
-    <div id="reportF"></div>
-  </div>
+    <div class="report-body">
+      <div class="toolbar">
+        <button class="btn btn-secondary btn-sm" id="restoreSelectedF">↩️ Restore selected</button>
+      </div>
+      <div id="reportF"></div>
+    </div><!-- /report-body -->
+  </div><!-- /card -->
 </div>
 
 <div class="modal-bg" id="editModal">
@@ -157,6 +221,28 @@ function setStatus(kind, text) {
   el.textContent = text;
 }
 
+// Read the color cache that the main app writes to localStorage.
+// Key matches SCRYFALL_CACHE_KEY in /index.html.
+var COLOR_CACHE_KEY = 'forge-scryfall-colors-v1';
+function loadColorCache() {
+  try {
+    return JSON.parse(localStorage.getItem(COLOR_CACHE_KEY) || '{}');
+  } catch (e) {
+    return {};
+  }
+}
+function colorRank(card) {
+  var cache = loadColorCache();
+  var key = String(card.set_name || '').toLowerCase().trim() + '|' + String(card.number || '').trim();
+  var entry = cache[key];
+  if (!entry) return 99;
+  return typeof entry.rank === 'number' ? entry.rank : 99;
+}
+function colorLabel(rank) {
+  var names = ['W', 'U', 'B', 'R', 'G', 'Multi', 'Colorless', 'Land'];
+  return rank >= 0 && rank < 8 ? names[rank] : '—';
+}
+
 function daysSince(isoString) {
   if (!isoString) return Infinity;
   const t = new Date(isoString.replace(' ', 'T') + 'Z').getTime();
@@ -181,6 +267,7 @@ async function loadAudit() {
     data = await r.json();
     renderAll();
     loadDeleted();
+    loadMissing();
     setStatus('success', 'Loaded ' + data.cards.length + ' cards across ' + data.boxTotals.length + ' boxes.');
   } catch (e) {
     setStatus('error', 'Failed to load audit data: ' + String(e && e.message || e));
@@ -197,6 +284,78 @@ function lastEventFor(id) {
   return latest;
 }
 
+async function loadMissing() {
+  try {
+    const r = await fetch(API_BASE + '/api/events?limit=500');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    const events = d.events || [];
+    // Latest missing event per card.
+    const latestMissing = {};
+    const latestClear = {};
+    for (const e of events) {
+      const id = e.tcgplayer_id;
+      if (!id) continue;
+      if (e.kind === 'missing') {
+        if (!latestMissing[id] || e.created_at > latestMissing[id].created_at) latestMissing[id] = e;
+      } else if (e.kind === 'verify' || e.kind === 'move' || e.kind === 'edit' || e.kind === 'delete' || e.kind === 'restore') {
+        if (!latestClear[id] || e.created_at > latestClear[id].created_at) latestClear[id] = e;
+      }
+    }
+    const open = [];
+    for (const id of Object.keys(latestMissing)) {
+      const m = latestMissing[id];
+      const c = latestClear[id];
+      if (c && c.created_at >= m.created_at) continue; // cleared
+      open.push(m);
+    }
+    open.sort(function (a, b) { return b.created_at.localeCompare(a.created_at); });
+    renderReportH(open);
+  } catch (e) {
+    document.getElementById('reportH').innerHTML = '<div class="empty">Failed to load missing: ' + escapeHtml(String(e && e.message || e)) + '</div>';
+  }
+}
+
+function renderReportH(missingEvents) {
+  const el = document.getElementById('reportH');
+  if (!missingEvents || missingEvents.length === 0) {
+    el.innerHTML = '<div class="empty">No cards currently marked missing.</div>';
+    return;
+  }
+  const byId = {};
+  for (const c of data.cards) byId[c.tcgplayer_id] = c;
+  const now = Date.now();
+  let html = '<table><thead><tr><th>Card</th><th>Set</th><th>#</th><th>Intended box</th><th>Current box</th><th>Note</th><th>Days</th><th>Action</th></tr></thead><tbody>';
+  for (const m of missingEvents) {
+    const c = byId[m.tcgplayer_id];
+    if (!c) continue; // card was soft-deleted or vanished; ignore
+    let note = '';
+    try { const meta = m.metadata ? JSON.parse(m.metadata) : null; if (meta && meta.note) note = meta.note; } catch (e) {}
+    const days = Math.max(0, Math.floor((now - new Date(m.created_at.replace(' ', 'T') + 'Z').getTime()) / 86400000));
+    html += '<tr>';
+    html += '<td>' + escapeHtml(c.product_name || '(no name)') + '</td>';
+    html += '<td>' + escapeHtml(c.set_name || '') + '</td>';
+    html += '<td>' + escapeHtml(c.number || '') + '</td>';
+    html += '<td style="font-weight:600;color:#b91c1c;">' + escapeHtml(m.box_from || '?') + '</td>';
+    html += '<td>' + escapeHtml(c.box || '') + '</td>';
+    html += '<td style="font-size:11px;color:#6b7280;">' + escapeHtml(note) + '</td>';
+    html += '<td><span class="badge badge-warn">' + days + 'd</span></td>';
+    html += '<td><button class="btn btn-secondary btn-sm clear-missing-btn" data-tcgid="' + escapeHtml(m.tcgplayer_id) + '" data-box="' + escapeHtml(c.box || '') + '" data-qty="' + (c.total_quantity || 0) + '">✓ Clear (verified)</button></td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  el.innerHTML = html;
+  el.querySelectorAll('.clear-missing-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      btn.disabled = true;
+      btn.textContent = '...';
+      var ok = await verifyCard(btn.getAttribute('data-tcgid'), btn.getAttribute('data-box'), parseInt(btn.getAttribute('data-qty'), 10) || 0);
+      if (ok) { loadMissing(); }
+      else { btn.disabled = false; btn.textContent = '✓ Clear (verified)'; }
+    });
+  });
+}
+
 async function loadDeleted() {
   try {
     const r = await fetch(API_BASE + '/api/cards/deleted');
@@ -207,6 +366,48 @@ async function loadDeleted() {
   } catch (e) {
     document.getElementById('reportF').innerHTML = '<div class="empty">Failed to load deleted cards: ' + escapeHtml(String(e && e.message || e)) + '</div>';
   }
+}
+
+function renderReportG() {
+  const windowDays = parseInt((document.getElementById('verifiedWindow') || {}).value || '30', 10);
+  // Build a map of tcgplayer_id -> latest verify timestamp.
+  const verifyById = {};
+  for (const row of (data.lastByKind || [])) {
+    if (row.kind !== 'verify') continue;
+    verifyById[row.tcgplayer_id] = row.latest;
+  }
+  const now = Date.now();
+  const cutoff = now - (windowDays * 24 * 60 * 60 * 1000);
+  const rows = [];
+  for (const c of data.cards) {
+    const v = verifyById[c.tcgplayer_id];
+    if (!v) continue;
+    const t = new Date(v.replace(' ', 'T') + 'Z').getTime();
+    if (!Number.isFinite(t) || t < cutoff) continue;
+    rows.push({ c: c, at: v, ageMs: now - t });
+  }
+  rows.sort(function (a, b) { return a.ageMs - b.ageMs; }); // most recent first
+  const el = document.getElementById('reportG');
+  if (rows.length === 0) {
+    el.innerHTML = '<div class="empty">No cards verified in the last ' + windowDays + ' days.</div>';
+    return;
+  }
+  let html = '<table><thead><tr><th>Card</th><th>Set</th><th>#</th><th>Box</th><th>Qty</th><th>Verified</th><th>Days ago</th></tr></thead><tbody>';
+  for (const r of rows) {
+    const c = r.c;
+    const daysAgo = Math.max(0, Math.floor(r.ageMs / (1000 * 60 * 60 * 24)));
+    html += '<tr>';
+    html += '<td>' + escapeHtml(c.product_name || '(no name)') + '</td>';
+    html += '<td>' + escapeHtml(c.set_name || '') + '</td>';
+    html += '<td>' + escapeHtml(c.number || '') + '</td>';
+    html += '<td>' + escapeHtml(c.box || '') + '</td>';
+    html += '<td>' + (c.total_quantity || 0) + '</td>';
+    html += '<td style="font-size:11px;color:#6b7280;">' + escapeHtml((r.at || '').slice(0, 19)) + '</td>';
+    html += '<td><span class="badge badge-ok">' + daysAgo + 'd</span></td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  el.innerHTML = html;
 }
 
 function renderReportF() {
@@ -222,6 +423,7 @@ function renderReportF() {
     html += '<td>' + escapeHtml(c.product_name || '(no name)') + '</td>';
     html += '<td>' + escapeHtml(c.set_name || '') + '</td>';
     html += '<td>' + escapeHtml(c.number || '') + '</td>';
+    html += '<td style="font-size:11px;color:#6b7280;">' + colorLabel(colorRank(c)) + '</td>';
     html += '<td>' + escapeHtml(c.box || '') + '</td>';
     html += '<td>' + (c.total_quantity || 0) + '</td>';
     html += '<td style="font-size:11px;color:#6b7280;">' + escapeHtml((c.deleted_at || '').slice(0, 19)) + '</td>';
@@ -254,26 +456,119 @@ function renderSummary() {
   document.getElementById('statSuspicious').textContent = suspicious;
 }
 
-function renderReportA() {
+function getReportAFiltered() {
   const filterBox = (document.getElementById('filterBoxA').value || '').toLowerCase();
   const filterSet = (document.getElementById('filterSetA').value || '').toLowerCase();
   const filter = (document.getElementById('filterA').value || '').toLowerCase();
+  const showAll = document.getElementById('showAllA').checked;
   const stale = [];
   for (const c of data.cards) {
-    // Skip cards with unknown scan date (they go in Report E).
     if (!c.scanned_on) continue;
     const last = lastEventFor(c.tcgplayer_id);
     const days = daysSince(last && last.latest);
-    if (days < STALE_DAYS) continue;
+    if (!showAll && days < STALE_DAYS) continue;
     if (filterBox && String(c.box || '').toLowerCase() !== filterBox) continue;
     if (filterSet && String(c.set_name || '').toLowerCase().indexOf(filterSet) === -1) continue;
     if (filter && String(c.product_name || '').toLowerCase().indexOf(filter) === -1) continue;
     stale.push({ c: c, last: last, days: days });
   }
-  stale.sort((a, b) => b.days - a.days);
+  return stale;
+}
+
+async function fetchColorsForVisible() {
+  const visible = getReportAFiltered();
+  const cache = loadColorCache();
+  const needed = [];
+  const seen = {};
+  for (const r of visible) {
+    const key = String(r.c.set_name || '').toLowerCase().trim() + '|' + String(r.c.number || '').trim();
+    if (!key || key === '|') continue;
+    if (seen[key]) continue;
+    seen[key] = true;
+    if (!cache[key]) needed.push(r.c);
+  }
+  if (needed.length === 0) {
+    setStatus('success', 'Colors already cached for all visible cards.');
+    return;
+  }
+  setStatus('loading', 'Fetching colors for ' + needed.length + ' card(s) from Scryfall...');
+  // Get set codes from Scryfall /sets.
+  const setsResp = await fetch('https://api.scryfall.com/sets');
+  if (!setsResp.ok) { setStatus('error', 'Could not reach Scryfall.'); return; }
+  const setsData = await setsResp.json();
+  const setMap = {};
+  for (const s of (setsData.data || [])) {
+    if (s.name) setMap[s.name.toLowerCase()] = (s.code || '').toLowerCase();
+    if (s.code) setMap[s.code.toLowerCase()] = (s.code || '').toLowerCase();
+  }
+  // Build identifiers.
+  const identifiers = [];
+  const keysInOrder = [];
+  for (const c of needed) {
+    const code = setMap[String(c.set_name || '').toLowerCase()];
+    if (!code) continue;
+    identifiers.push({ set: code, collector_number: String(c.number) });
+    keysInOrder.push(String(c.set_name || '').toLowerCase() + '|' + String(c.number).trim());
+  }
+  if (identifiers.length === 0) { setStatus('error', 'No set names resolved to codes.'); return; }
+  // Batch 75 at a time.
+  let added = 0;
+  const BATCH = 75;
+  for (let i = 0; i < identifiers.length; i += BATCH) {
+    try {
+      const batch = identifiers.slice(i, i + BATCH);
+      const r = await fetch('https://api.scryfall.com/cards/collection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifiers: batch })
+      });
+      if (!r.ok) continue;
+      const d = await r.json();
+      for (const card of (d.data || [])) {
+        const key = String(card.set_name || '').toLowerCase() + '|' + String(card.collector_number || '');
+        if (!cache[key]) {
+          cache[key] = {
+            rank: (function (colors, type) {
+              if (/\\bland\\b/i.test(type) && colors.length === 0) return 7;
+              if (colors.length === 0) return 6;
+              if (colors.length > 1) return 5;
+              var o = { W: 0, U: 1, B: 2, R: 3, G: 4 };
+              return o[colors[0]] !== undefined ? o[colors[0]] : 6;
+            })(card.color_identity || [], card.type_line || ''),
+            colors: card.color_identity || [],
+            name: card.name
+          };
+          added++;
+        }
+      }
+      // Scryfall rate limit: 10 req/sec. Pause between batches.
+      if (i + BATCH < identifiers.length) {
+        await new Promise(function (res) { setTimeout(res, 100); });
+      }
+    } catch (e) {
+      // Skip failed batches.
+    }
+  }
+  localStorage.setItem(COLOR_CACHE_KEY, JSON.stringify(cache));
+  setStatus('success', 'Cached ' + added + ' new card(s). Re-rendering...');
+  renderReportA();
+}
+
+function renderReportA() {
+  const stale = getReportAFiltered();
+  const sortByColor = document.getElementById('sortByColorA').checked;
+  if (sortByColor) {
+    stale.sort(function (a, b) {
+      var ra = colorRank(a.c), rb = colorRank(b.c);
+      if (ra !== rb) return ra - rb;
+      return String(a.c.product_name || '').localeCompare(String(b.c.product_name || ''));
+    });
+  } else {
+    stale.sort((a, b) => b.days - a.days);
+  }
   const el = document.getElementById('reportA');
-  if (stale.length === 0) { el.innerHTML = '<div class="empty">No stale cards.</div>'; return; }
-  let html = '<table><thead><tr><th style="width:24px;"><input type="checkbox" id="selectAllA" title="Select all visible"></th><th>Card</th><th>Set</th><th>#</th><th>Box</th><th>Qty</th><th>Scanned</th><th>Last event</th><th>Days</th><th>Actions</th></tr></thead><tbody>';
+  if (stale.length === 0) { el.innerHTML = '<div class="empty">No matching cards.</div>'; return; }
+  let html = '<table><thead><tr><th style="width:24px;"><input type="checkbox" id="selectAllA" title="Select all visible"></th><th>Card</th><th>Set</th><th>#</th><th>Color</th><th>Box</th><th>Qty</th><th>Scanned</th><th>Last event</th><th>Days</th><th>Actions</th></tr></thead><tbody>';
   for (const r of stale) {
     const c = r.c;
     const ev = r.last ? r.last.kind + ' (' + r.last.latest.slice(0, 10) + ')' : 'never';
@@ -283,6 +578,7 @@ function renderReportA() {
     html += '<td>' + escapeHtml(c.product_name || '(no name)') + '</td>';
     html += '<td>' + escapeHtml(c.set_name || '') + '</td>';
     html += '<td>' + escapeHtml(c.number || '') + '</td>';
+    html += '<td style="font-size:11px;color:#6b7280;">' + colorLabel(colorRank(c)) + '</td>';
     html += '<td>' + escapeHtml(c.box || '') + '</td>';
     html += '<td>' + (c.total_quantity || 0) + '</td>';
     html += '<td style="font-size:11px;color:#6b7280;">' + escapeHtml((c.scanned_on || '').slice(0, 10)) + '</td>';
@@ -345,6 +641,74 @@ function renderReportB() {
   el.innerHTML = html;
 }
 
+function runStockCheck() {
+  var box = document.getElementById('stockCheckBox').value;
+  var list = document.getElementById('stockCheckList');
+  var status = document.getElementById('stockCheckStatus');
+  if (!box) { status.textContent = 'Choose a box first.'; list.innerHTML = ''; return; }
+  var inBox = data.cards.filter(function (c) {
+    return String(c.box || '').toLowerCase() === box;
+  });
+  if (inBox.length === 0) { status.textContent = 'No cards in that box.'; list.innerHTML = ''; return; }
+  // Pick up to 10 random cards from the box.
+  var pool = inBox.slice();
+  for (var i = pool.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var tmp = pool[i]; pool[i] = pool[j]; pool[j] = tmp;
+  }
+  var sample = pool.slice(0, Math.min(10, pool.length));
+  status.textContent = 'Stock check: ' + sample.length + ' random cards from box ' + box;
+  var html = '<table><thead><tr><th style="width:24px;"></th><th>Card</th><th>Set</th><th>#</th><th>Qty</th><th>Action</th></tr></thead><tbody>';
+  for (var k = 0; k < sample.length; k++) {
+    var c = sample[k];
+    html += '<tr>';
+    html += '<td><input type="checkbox" class="row-check-stock" data-tcgid="' + escapeHtml(c.tcgplayer_id) + '" data-box="' + escapeHtml(c.box) + '" data-qty="' + (c.total_quantity || 0) + '"></td>';
+    html += '<td>' + escapeHtml(c.product_name || '(no name)') + '</td>';
+    html += '<td>' + escapeHtml(c.set_name || '') + '</td>';
+    html += '<td>' + escapeHtml(c.number || '') + '</td>';
+    html += '<td>' + (c.total_quantity || 0) + '</td>';
+    html += '<td><button class="btn btn-secondary btn-sm stock-verify-btn" data-tcgid="' + escapeHtml(c.tcgplayer_id) + '" data-box="' + escapeHtml(c.box) + '" data-qty="' + (c.total_quantity || 0) + '">✓ Verify</button></td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  html += '<div style="margin-top:8px;"><button class="btn btn-secondary btn-sm" id="verifyAllStockBtn">✓ Verify all checked</button></div>';
+  list.innerHTML = html;
+
+  // Wire per-row verify.
+  list.querySelectorAll('.stock-verify-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      btn.disabled = true;
+      btn.textContent = '...';
+      var ok = await verifyCard(btn.getAttribute('data-tcgid'), btn.getAttribute('data-box'), parseInt(btn.getAttribute('data-qty'), 10) || 0);
+      if (ok) {
+        btn.textContent = '✓ Verified';
+        btn.classList.remove('btn-secondary');
+        btn.classList.add('btn-primary');
+      } else {
+        btn.disabled = false;
+        btn.textContent = '✓ Verify';
+      }
+    });
+  });
+
+  // Wire "verify all checked".
+  var verifyAll = document.getElementById('verifyAllStockBtn');
+  if (verifyAll) {
+    verifyAll.addEventListener('click', async function () {
+      var checks = list.querySelectorAll('.row-check-stock:checked');
+      if (checks.length === 0) { setStatus('error', 'Nothing checked.'); return; }
+      var ok = 0;
+      for (var m = 0; m < checks.length; m++) {
+        var cb = checks[m];
+        if (await verifyCard(cb.getAttribute('data-tcgid'), cb.getAttribute('data-box'), parseInt(cb.getAttribute('data-qty'), 10) || 0)) ok++;
+        cb.checked = false;
+      }
+      setStatus('success', 'Verified ' + ok + ' of ' + checks.length + ' card(s).');
+      loadAudit();
+    });
+  }
+}
+
 function renderReportC() {
   const el = document.getElementById('reportC');
   if (!data.boxTotals || data.boxTotals.length === 0) { el.innerHTML = '<div class="empty">No boxes.</div>'; return; }
@@ -390,19 +754,30 @@ function renderReportE() {
 
 function populateBoxFilter() {
   const sel = document.getElementById('filterBoxA');
-  if (!sel) return;
-  // Preserve the current selection if possible.
-  const current = sel.value;
-  sel.innerHTML = '<option value="">All boxes</option>';
+  const sel2 = document.getElementById('stockCheckBox');
   const boxes = data.boxTotals.map(function (b) { return b.box || ''; }).filter(Boolean).sort();
-  for (const b of boxes) {
-    const opt = document.createElement('option');
-    opt.value = b.toLowerCase();
-    opt.textContent = b;
-    sel.appendChild(opt);
+  if (sel) {
+    const current = sel.value;
+    sel.innerHTML = '<option value="">All boxes</option>';
+    for (const b of boxes) {
+      const opt = document.createElement('option');
+      opt.value = b.toLowerCase();
+      opt.textContent = b;
+      sel.appendChild(opt);
+    }
+    if (current && boxes.some(function (b) { return b.toLowerCase() === current; })) sel.value = current;
   }
-  // Restore previous selection if it's still in the list.
-  if (current && boxes.some(function (b) { return b.toLowerCase() === current; })) sel.value = current;
+  if (sel2) {
+    const current2 = sel2.value;
+    sel2.innerHTML = '<option value="">Choose a box...</option>';
+    for (const b of boxes) {
+      const opt = document.createElement('option');
+      opt.value = b.toLowerCase();
+      opt.textContent = b;
+      sel2.appendChild(opt);
+    }
+    if (current2 && boxes.some(function (b) { return b.toLowerCase() === current2; })) sel2.value = current2;
+  }
 }
 
 function renderAll() {
@@ -414,6 +789,7 @@ function renderAll() {
   renderReportC();
   renderReportD();
   renderReportE();
+  renderReportG();
 }
 
 let editCtx = null;
@@ -499,7 +875,9 @@ async function saveEditModal() {
     const data = await r.json();
     setStatus('success', 'Saved. ' + (data && data.changed ? data.changed + ' field(s) changed.' : ''));
     closeEditModal();
-    loadAudit();
+    // Toggle handled inline via onclick attribute in the markup.
+
+loadAudit();
   } catch (e) {
     setStatus('error', 'Edit failed: ' + String(e && e.message || e));
   }
@@ -652,6 +1030,21 @@ document.getElementById('restoreSelectedF').addEventListener('click', async func
 
 document.getElementById('editCancel').addEventListener('click', closeEditModal);
 document.getElementById('editSave').addEventListener('click', saveEditModal);
+document.getElementById('showAllA').addEventListener('change', renderReportA);
+document.getElementById('sortByColorA').addEventListener('change', renderReportA);
+document.getElementById('verifiedWindow').addEventListener('change', renderReportG);
+document.getElementById('stockCheckBtn').addEventListener('click', function () {
+  runStockCheck();
+});
+document.getElementById('stockShuffleBtn').addEventListener('click', function () {
+  runStockCheck();
+});
+document.getElementById('fetchColorsBtnA').addEventListener('click', async function () {
+  var btn = this;
+  btn.disabled = true;
+  try { await fetchColorsForVisible(); }
+  finally { btn.disabled = false; }
+});
 document.getElementById('filterBoxA').addEventListener('change', renderReportA);
 document.getElementById('filterSetA').addEventListener('input', renderReportA);
 document.getElementById('filterA').addEventListener('input', renderReportA);

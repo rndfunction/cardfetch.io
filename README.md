@@ -26,8 +26,12 @@ so you can find it when a customer orders it.
 - **Commit**: write the updated quantities back to the live inventory,
   only for the orders you're actually shipping.
 - **Move a card**: found a card in a different box than expected? Click
-  `↔️` (or `🤔` if you went to the box and it wasn't there) and record the
-  move. The trail keeps a record.
+  `↔️` and record the move. The trail keeps a record.
+- **Report a missing card**: went to the box and it wasn't there? Click
+  `🤔`, add an optional note ("checked twice"), and the card is flagged.
+  It stays in inventory (unchanged) and appears in the audit's Missing
+  report, with the box where it was *supposed* to be. When you find it,
+  click "Clear (verified)" to unflag it.
 - **Bulk move**: check the boxes on multiple cards (or "select all visible"),
   and move them all to a new box in one step. Great for "the whole set is in
   the wrong box."
@@ -41,8 +45,16 @@ so you can find it when a customer orders it.
   printed color, not its rules-text "colorless."
 - **Audit dashboard** (`/audit.html`): reports for stale cards (not
   touched in 90+ days), suspicious quantities (10+ of the same card in
-  the same box, boxes over 800 units), structurally broken rows, and
-  unknown scan dates.
+  the same box, boxes over 800 units), structurally broken rows,
+  unknown scan dates, soft-deleted cards (restorable), and recently
+  verified cards.
+- **Sort by box or order**: the results table groups cards by physical
+  box, or by the order they belong to (with box sub-groups). Whatever
+  you sort by on screen is what prints.
+- **Paper worksheet**: the printed picking list has a pre-printed
+  checkbox and a blank notes line per card, so staff can check off
+  cards and write "condition issue" or "moved to box X" and hand the
+  sheet back at the end of a shift.
 - **Soft-delete**: cards removed from the inventory aren't destroyed;
   they're marked deleted and hidden. They appear in an audit report
   ("Deleted cards") where they can be restored with one click.
@@ -68,24 +80,36 @@ The audit page lives at **`/audit.html`** (linked from the admin page).
 It's for maintaining trust in the current data: "I know some cards might
 be gone or misplaced, but I don't know which."
 
-Six reports:
+Eight reports:
 
 1. **Stale cards** (90+ days): cards with a known scan date that haven't
    been pulled, moved, added, or verified in 90+ days. Filterable by box,
-   by set, and by name.
+   by set, and by name. Supports "Show all cards" to see every card in a
+   filter, not just the stale ones.
 2. **High-count duplicates**: the same card in the same box with quantity
    10 or more. Usually means a miscount or a ghost.
 3. **Box totals**: cards and units per box. Over 800 units is flagged
-   (typical box capacity).
+   (typical box capacity). Includes a **stock check** tool: pick a box,
+   get 10 random cards to verify physically, click ✓ Verify to record.
 4. **Structurally broken rows**: missing name, set, number, condition,
    or box.
 5. **Unknown scan date**: cards whose box code didn't parse as a date
    (e.g. `LOTR`, `NCC1701`). They can't be judged for staleness.
 6. **Deleted cards** (soft-delete): cards that have been marked deleted
-   but not purged. They can be restored.
+   but not purged. They can be restored, individually or in bulk.
+7. **Recently verified**: cards you've physically checked recently, with
+   a time window (7 / 30 / 90 / 365 days). Useful for confirming coverage
+   before a pull day.
+8. **Missing cards**: cards that were flagged as "not there" during a
+   pull. Shows the card, the **intended** box (where it was supposed to
+   be), the current box, any note, and days since flagged. A "Clear
+   (verified)" button writes a verify event, which clears the flag.
 
-Each row has **Verify**, **Move**, **Edit**, and **Delete** actions, and
-each report supports **bulk actions** on checked rows.
+Each row in Report A has **Verify**, **Move**, **Edit**, and **Delete**
+actions, and each report supports **bulk actions** on checked rows.
+
+Cards can be sorted by color (WUBRG) with a **Fetch colors** button. The
+color cache is per-browser and shared with the main app.
 
 ## Soft-delete
 
@@ -158,6 +182,31 @@ box is empty) to record the move. The event trail keeps a history.
 
 For bulk operations, check the boxes on multiple rows (or use "select all
 visible"), then click "Move all to..." in the floating bar.
+
+### Sorting and printing
+
+Two sort modes:
+
+- **Sort by box** (default): cards grouped by physical box, sorted by name
+  within each box. This matches the natural walk: box A, then box B.
+- **Sort by order**: cards grouped by order token, with a box sub-group
+  inside each order. This matches the workflow "pick this order, then
+  that one."
+
+You pick the mode from the dropdown in the results toolbar. **Whatever you
+sort by on screen is what prints.** If box mode is on, the paper worksheet
+has one header per box. If order mode is on, it has order headers, then
+box sub-headers.
+
+The worksheet has:
+- A **checkbox** at the left of each row, so staff can check off cards
+  with a pen.
+- A **blank notes line** at the right, for "condition issue," "moved to
+  box X," or anything else that matters.
+- **Stock count** (plain text, colored) on each row.
+
+At the bottom of a shift, the staff member hands the sheet back with the
+checkmarks and notes filled in. That's the report.
 
 ### Adding a single card
 
