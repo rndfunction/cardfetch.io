@@ -817,7 +817,11 @@ async function handleMoveBulk(req, env) {
   const reason = body.reason || 'bulk';
   const db = env.DB.withSession('first-primary');
   const skipped = [];
-  const statements = [];
+
+  // First pass: validate, collect distinct ids and boxes for the pre-fetch.
+  const valid = [];
+  const idSet = new Set();
+  const boxSet = new Set();
   for (const m of moves) {
     if (!m || !m.tcgplayer_id || !m.from_box || !m.to_box) {
       skipped.push({ tcgplayer_id: m && m.tcgplayer_id, reason: 'missing fields' });
@@ -827,23 +831,93 @@ async function handleMoveBulk(req, env) {
       skipped.push({ tcgplayer_id: m.tcgplayer_id, reason: 'same box' });
       continue;
     }
-    // Match handleMove's filter: do not move soft-deleted rows. Bulk move
-    // and single move must behave the same way here -- a stale selection
-    // should not silently relocate a card that has been soft-deleted.
-    statements.push(
-      db.prepare('UPDATE cards SET box = ? WHERE tcgplayer_id = ? AND box = ? AND deleted_at IS NULL')
-        .bind(String(m.to_box), String(m.tcgplayer_id), String(m.from_box))
-    );
+    valid.push(m);
+    idSet.add(String(m.tcgplayer_id));
+    boxSet.add(String(m.from_box));
+    boxSet.add(String(m.to_box));
+  }
+  if (valid.length === 0) {
+    return Response.json({ ok: false, error: 'No valid moves', skipped: skipped }, { status: 400 });
+  }
+
+  // Pre-fetch every card row that could be a source or destination for this
+  // batch. A merge happens when the destination already holds (id, to_box).
+  // The unique index refuses a plain UPDATE in that case, which is why the
+  // old code returned 500 on this scenario.
+  const ids = Array.from(idSet);
+  const boxes = Array.from(boxSet);
+  const placeholdersI = ids.map(function () { return '?'; }).join(',');
+  const placeholdersB = boxes.map(function () { return '?'; }).join(',');
+  const map = {};
+  try {
+    const prefetch = await db.prepare(
+      'SELECT tcgplayer_id, box, total_quantity FROM cards ' +
+      'WHERE deleted_at IS NULL AND tcgplayer_id IN (' + placeholdersI + ') AND box IN (' + placeholdersB + ')'
+    ).bind(...ids, ...boxes).all();
+    for (const r of (prefetch.results || [])) {
+      map[String(r.tcgplayer_id) + '\u0000' + String(r.box)] = r;
+    }
+  } catch (e) {
+    return Response.json({ ok: false, error: 'Prefetch failed: ' + String(e && e.message || e), skipped: skipped }, { status: 500 });
+  }
+
+  // Second pass: build statements. Plain move = UPDATE + event (2 stmts).
+  // Merge = UPDATE dest + DELETE source + event (3 stmts).
+  const statements = [];
+  let movedCount = 0;
+  let mergedCount = 0;
+  const mergedDetails = [];
+  for (const m of valid) {
+    const srcKey = String(m.tcgplayer_id) + '\u0000' + String(m.from_box);
+    const dstKey = String(m.tcgplayer_id) + '\u0000' + String(m.to_box);
+    const src = map[srcKey] || null;
+    if (!src) {
+      skipped.push({ tcgplayer_id: m.tcgplayer_id, reason: 'source not found' });
+      continue;
+    }
+    const srcQty = (src.total_quantity === null || src.total_quantity === undefined) ? 0 : Number(src.total_quantity);
+    const dst = map[dstKey] || null;
+
+    const evtMetadata = { reason: String(reason) };
+    if (dst) {
+      const dstQty = (dst.total_quantity === null || dst.total_quantity === undefined) ? 0 : Number(dst.total_quantity);
+      evtMetadata.merged = true;
+      evtMetadata.prev_dest_qty = dstQty;
+      mergedDetails.push({
+        tcgplayer_id: String(m.tcgplayer_id),
+        from_box: String(m.from_box),
+        to_box: String(m.to_box),
+        quantity_moved: srcQty,
+        quantity_in_dest_before: dstQty,
+        quantity_in_dest_after: dstQty + srcQty
+      });
+      statements.push(
+        db.prepare('UPDATE cards SET total_quantity = COALESCE(total_quantity, 0) + ? WHERE tcgplayer_id = ? AND box = ?')
+          .bind(srcQty, String(m.tcgplayer_id), String(m.to_box))
+      );
+      statements.push(
+        db.prepare('DELETE FROM cards WHERE tcgplayer_id = ? AND box = ?')
+          .bind(String(m.tcgplayer_id), String(m.from_box))
+      );
+      mergedCount++;
+    } else {
+      statements.push(
+        db.prepare('UPDATE cards SET box = ? WHERE tcgplayer_id = ? AND box = ? AND deleted_at IS NULL')
+          .bind(String(m.to_box), String(m.tcgplayer_id), String(m.from_box))
+      );
+    }
     statements.push(
       db.prepare(
         'INSERT INTO events (tcgplayer_id, kind, box_from, box_to, quantity, source, metadata) ' +
         'VALUES (?, ?, ?, ?, ?, ?, ?)'
       ).bind(
-        String(m.tcgplayer_id), 'move', String(m.from_box), String(m.to_box), 1, 'live',
-        JSON.stringify({ reason: String(reason) })
+        String(m.tcgplayer_id), 'move', String(m.from_box), String(m.to_box), srcQty, 'live',
+        JSON.stringify(evtMetadata)
       )
     );
+    movedCount++;
   }
+
   if (statements.length === 0) {
     return Response.json({ ok: false, error: 'No valid moves', skipped: skipped }, { status: 400 });
   }
@@ -854,7 +928,13 @@ async function handleMoveBulk(req, env) {
   } catch (e) {
     return Response.json({ ok: false, error: String(e && e.message || e), skipped: skipped }, { status: 500 });
   }
-  return Response.json({ ok: true, moved: statements.length / 2, skipped: skipped });
+  return Response.json({
+    ok: true,
+    moved: movedCount,
+    merged: mergedCount,
+    mergedDetails: mergedDetails,
+    skipped: skipped
+  });
 }
 
 // Move a card from one box to another. Updates the canonical `cards.box`
@@ -875,36 +955,16 @@ async function handleMove(req, env) {
   }
   const db = env.DB.withSession('first-primary');
   try {
-    // Update the row AND write the event in a single batch, so the trail
-    // and the inventory always agree. If the UPDATE matched zero rows, the
-    // event must not be written either -- batch returns results in order,
-    // so we can inspect the UPDATE's meta.changes before trusting the
-    // batch's success.
-    //
-    // Caveat: D1 does not expose a way to abort a batch based on an earlier
-    // statement's result, so the event will be written even when the UPDATE
-    // matched nothing. That case still surfaces as a 404 to the caller and
-    // is recoverable (the front end re-fetches); the inverse (state change
-    // with no trail) is the case we care about, and this batch eliminates
-    // it.
-    const updStmt = db.prepare(
-      'UPDATE cards SET box = ? WHERE tcgplayer_id = ? AND box = ? AND deleted_at IS NULL'
-    ).bind(to_box, tcgplayer_id, from_box);
-    const evtStmt = db.prepare(
-      'INSERT INTO events (tcgplayer_id, kind, box_from, box_to, quantity, source, metadata) ' +
-      'VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).bind(
-      String(tcgplayer_id), 'move', String(from_box), String(to_box), 1, 'live',
-      reason ? JSON.stringify({ reason: String(reason) }) : null
-    );
-    const batchRes = await db.batch([updStmt, evtStmt]);
-    const upd = batchRes && batchRes[0] ? batchRes[0] : null;
-    const changes = upd && upd.meta ? upd.meta.changes : null;
-    if (changes === 0) {
-      // The row wasn't where we expected. Possibly already moved, or the
-      // from_box is stale. Return a clear error; the caller can re-fetch.
-      // The event row was written by the batch -- harmless (it records the
-      // attempted move) but see the caveat above.
+    // The destination box may already contain a row for this tcgplayer_id.
+    // The unique index idx_cards_id_box refuses a plain UPDATE in that case
+    // (SQLITE_CONSTRAINT_UNIQUE), which is exactly the error that made people
+    // create near-duplicate boxes in the first place. So: read the source,
+    // then merge if needed.
+    const srcRes = await db.prepare(
+      'SELECT total_quantity FROM cards WHERE tcgplayer_id = ? AND box = ? AND deleted_at IS NULL'
+    ).bind(String(tcgplayer_id), String(from_box)).all();
+    const src = (srcRes.results && srcRes.results[0]) ? srcRes.results[0] : null;
+    if (!src) {
       return Response.json({
         ok: false,
         error: 'No card found with that tcgplayer_id in the given box',
@@ -912,7 +972,70 @@ async function handleMove(req, env) {
         from_box: from_box
       }, { status: 404 });
     }
-    return Response.json({ ok: true, from: from_box, to: to_box });
+    const srcQty = (src.total_quantity === null || src.total_quantity === undefined) ? 0 : Number(src.total_quantity);
+
+    const dstRes = await db.prepare(
+      'SELECT total_quantity FROM cards WHERE tcgplayer_id = ? AND box = ? AND deleted_at IS NULL'
+    ).bind(String(tcgplayer_id), String(to_box)).all();
+    const dst = (dstRes.results && dstRes.results[0]) ? dstRes.results[0] : null;
+    const dstQty = dst ? ((dst.total_quantity === null || dst.total_quantity === undefined) ? 0 : Number(dst.total_quantity)) : null;
+
+    const evtMetadata = reason ? { reason: String(reason) } : {};
+    if (dst) {
+      evtMetadata.merged = true;
+      evtMetadata.prev_dest_qty = dstQty;
+    }
+    const evtStmt = db.prepare(
+      'INSERT INTO events (tcgplayer_id, kind, box_from, box_to, quantity, source, metadata) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).bind(
+      String(tcgplayer_id), 'move', String(from_box), String(to_box), srcQty, 'live',
+      Object.keys(evtMetadata).length ? JSON.stringify(evtMetadata) : null
+    );
+
+    if (dst) {
+      // Merge: add source qty into the destination row, then delete the
+      // source row. Both statements + the event land in one batch.
+      const mergeStmt = db.prepare(
+        'UPDATE cards SET total_quantity = COALESCE(total_quantity, 0) + ? WHERE tcgplayer_id = ? AND box = ?'
+      ).bind(srcQty, String(tcgplayer_id), String(to_box));
+      const delStmt = db.prepare(
+        'DELETE FROM cards WHERE tcgplayer_id = ? AND box = ?'
+      ).bind(String(tcgplayer_id), String(from_box));
+      await db.batch([mergeStmt, delStmt, evtStmt]);
+      return Response.json({
+        ok: true,
+        from: from_box,
+        to: to_box,
+        merged: true,
+        quantity_moved: srcQty,
+        quantity_in_dest_before: dstQty,
+        quantity_in_dest_after: dstQty + srcQty
+      });
+    }
+
+    // No conflict: plain UPDATE + event in one batch.
+    const updStmt = db.prepare(
+      'UPDATE cards SET box = ? WHERE tcgplayer_id = ? AND box = ? AND deleted_at IS NULL'
+    ).bind(String(to_box), String(tcgplayer_id), String(from_box));
+    const batchRes = await db.batch([updStmt, evtStmt]);
+    const upd = batchRes && batchRes[0] ? batchRes[0] : null;
+    const changes = upd && upd.meta ? upd.meta.changes : null;
+    if (changes === 0) {
+      return Response.json({
+        ok: false,
+        error: 'No card found with that tcgplayer_id in the given box',
+        tcgplayer_id: tcgplayer_id,
+        from_box: from_box
+      }, { status: 404 });
+    }
+    return Response.json({
+      ok: true,
+      from: from_box,
+      to: to_box,
+      merged: false,
+      quantity_moved: srcQty
+    });
   } catch (e) {
     return Response.json({ ok: false, error: String(e && e.message || e) }, { status: 500 });
   }

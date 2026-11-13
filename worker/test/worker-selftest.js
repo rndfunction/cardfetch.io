@@ -42,6 +42,15 @@ function makeFakeDB() {
       return { results: r ? [r] : [] };
     }
 
+    // SELECT total_quantity FROM cards WHERE tcgplayer_id = ? AND box = ? AND deleted_at IS NULL
+    // Emitted by handleMove (single) to read the source and destination rows
+    // before deciding whether to move or merge.
+    if (/^SELECT total_quantity FROM cards WHERE tcgplayer_id = \? AND box = \? AND deleted_at IS NULL$/.test(s)) {
+      const r = findCard(params[0], params[1]);
+      if (!r || r.deleted_at) return { results: [] };
+      return { results: [{ total_quantity: r.total_quantity }] };
+    }
+
     // SELECT tcgplayer_id, product_line, ... FROM cards WHERE deleted_at IS NULL ORDER BY ...
     if (/^SELECT tcgplayer_id, product_line, set_name, product_name, number, rarity, condition, total_quantity, box, scanned_on, deleted_at FROM cards WHERE deleted_at IS NULL/.test(s)) {
       return { results: cards.filter(r => !r.deleted_at).slice() };
@@ -143,11 +152,50 @@ function makeFakeDB() {
     }
 
     // UPDATE cards SET box = ? WHERE tcgplayer_id = ? AND box = ? AND deleted_at IS NULL
+    // Emulates the real idx_cards_id_box UNIQUE index: if a card with the same
+    // tcgplayer_id already exists at the destination box, the real D1 would
+    // throw SQLITE_CONSTRAINT_UNIQUE. The fake must do the same, or the
+    // harness cannot catch the bug the merge fix addresses.
     if (/^UPDATE cards SET box = \? WHERE tcgplayer_id = \? AND box = \? AND deleted_at IS NULL$/.test(s)) {
       const r = findCard(params[1], params[2]);
       if (!r || r.deleted_at) return { success: true, meta: { changes: 0 } };
+      const collision = findCard(params[1], params[0]);
+      if (collision && collision !== r) {
+        const err = new Error('D1_ERROR: UNIQUE constraint failed: cards.tcgplayer_id, cards.box: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_UNIQUE)');
+        err.name = 'SQLITE_CONSTRAINT_UNIQUE';
+        throw err;
+      }
       r.box = params[0];
       return { success: true, meta: { changes: 1 } };
+    }
+
+    // Merge update: UPDATE cards SET total_quantity = COALESCE(total_quantity, 0) + ? WHERE tcgplayer_id = ? AND box = ?
+    if (/^UPDATE cards SET total_quantity = COALESCE\(total_quantity, 0\) \+ \? WHERE tcgplayer_id = \? AND box = \?$/.test(s)) {
+      const r = findCard(params[1], params[2]);
+      if (!r) return { success: true, meta: { changes: 0 } };
+      r.total_quantity = (r.total_quantity || 0) + params[0];
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    // Merge delete: DELETE FROM cards WHERE tcgplayer_id = ? AND box = ?
+    if (/^DELETE FROM cards WHERE tcgplayer_id = \? AND box = \?$/.test(s)) {
+      const idx = cards.findIndex(r => r.tcgplayer_id === params[0] && r.box === params[1]);
+      if (idx === -1) return { success: true, meta: { changes: 0 } };
+      cards.splice(idx, 1);
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    // Pre-fetch: SELECT tcgplayer_id, box, total_quantity FROM cards
+    // WHERE deleted_at IS NULL AND tcgplayer_id IN (...) AND box IN (...)
+    const prefetchMatch = s.match(/^SELECT tcgplayer_id, box, total_quantity FROM cards WHERE deleted_at IS NULL AND tcgplayer_id IN \(([^)]+)\) AND box IN \(([^)]+)\)$/);
+    if (prefetchMatch) {
+      const idCount = prefetchMatch[1].split(',').length;
+      const boxCount = prefetchMatch[2].split(',').length;
+      const ids = params.slice(0, idCount).map(String);
+      const boxes = params.slice(idCount, idCount + boxCount).map(String);
+      const rows = cards.filter(r => !r.deleted_at && ids.indexOf(String(r.tcgplayer_id)) !== -1 && boxes.indexOf(String(r.box)) !== -1)
+        .map(r => ({ tcgplayer_id: r.tcgplayer_id, box: r.box, total_quantity: r.total_quantity }));
+      return { results: rows };
     }
 
     // UPDATE cards SET box = ? WHERE tcgplayer_id = ? AND box = ?   (bulk-move legacy shape)
@@ -433,6 +481,65 @@ export async function runAll(workerUrl) {
   {
     const r = await handler(makeReq('PUT', '/api/inventory', 'x', noauth), env);
     assert('PUT without write key returns 403', r.status === 403, 'status=' + r.status);
+  }
+
+  // 15. Merge on single move: same card in two boxes, move from A to B.
+  {
+    const env2 = makeEnv(KEY);
+    // Seed: merge-1 qty 2 in BOX-A, merge-1 qty 3 in BOX-B.
+    const seed = 'TCGplayer Id,Product Line,Set Name,Product Name,Number,Rarity,Condition,Add to Quantity,Where is it?\n' +
+      'merge-1,Magic,Set M,Merge Card,1,R,Near Mint,2,BOX-A\n' +
+      'merge-1,Magic,Set M,Merge Card,1,R,Near Mint,3,BOX-B\n';
+    const pr = await handler(makeReq('PUT', '/api/inventory', seed, auth), env2);
+    assert('merge setup: PUT ok', pr.status === 200, 'status=' + pr.status);
+    const beforeA = env2.DB._cards.find(c => c.tcgplayer_id === 'merge-1' && c.box === 'BOX-A');
+    const beforeB = env2.DB._cards.find(c => c.tcgplayer_id === 'merge-1' && c.box === 'BOX-B');
+    assert('merge setup: both rows present', beforeA && beforeA.total_quantity === 2 && beforeB && beforeB.total_quantity === 3, 'A=' + JSON.stringify(beforeA) + ' B=' + JSON.stringify(beforeB));
+
+    // Move merge-1 from BOX-A to BOX-B (occupied).
+    const mr = await handler(makeReq('PATCH', '/api/cards/move', { tcgplayer_id: 'merge-1', from_box: 'BOX-A', to_box: 'BOX-B', reason: 'test-merge' }, auth), env2);
+    const mj = await mr.json();
+    assert('single move into occupied box succeeds (not 500)', mr.status === 200 && mj.ok === true, 'status=' + mr.status + ' body=' + JSON.stringify(mj));
+    assert('single move reports merged:true', mj.merged === true, 'merged=' + mj.merged);
+    assert('single move reports quantity_moved:2', mj.quantity_moved === 2, 'qty_moved=' + mj.quantity_moved);
+    assert('single move reports quantity_in_dest_after:5', mj.quantity_in_dest_after === 5, 'after=' + mj.quantity_in_dest_after);
+    const afterA = env2.DB._cards.find(c => c.tcgplayer_id === 'merge-1' && c.box === 'BOX-A');
+    const afterB = env2.DB._cards.find(c => c.tcgplayer_id === 'merge-1' && c.box === 'BOX-B');
+    assert('merge: source row gone', !afterA, 'A=' + JSON.stringify(afterA));
+    assert('merge: dest row qty 5', afterB && afterB.total_quantity === 5, 'B=' + JSON.stringify(afterB));
+    const moveEvt = env2.DB._events.find(e => e.kind === 'move' && e.tcgplayer_id === 'merge-1');
+    let mergeMeta = null;
+    try { mergeMeta = moveEvt && moveEvt.metadata ? JSON.parse(moveEvt.metadata) : null; } catch (e) { mergeMeta = null; }
+    assert('merge event has merged:true metadata', mergeMeta && mergeMeta.merged === true, 'meta=' + JSON.stringify(mergeMeta));
+    assert('merge event quantity is source qty (2)', moveEvt && Number(moveEvt.quantity) === 2, 'qty=' + (moveEvt && moveEvt.quantity));
+  }
+
+  // 16. Merge on bulk move: same merge scenario via /api/cards/move-bulk.
+  {
+    const env3 = makeEnv(KEY);
+    const seed = 'TCGplayer Id,Product Line,Set Name,Product Name,Number,Rarity,Condition,Add to Quantity,Where is it?\n' +
+      'bulk-m,Magic,Set N,Bulk Merge,1,R,Near Mint,4,BOX-X\n' +
+      'bulk-m,Magic,Set N,Bulk Merge,1,R,Near Mint,1,BOX-Y\n' +
+      'bulk-ok,Magic,Set N,Plain Move,2,U,Near Mint,1,BOX-X\n';
+    await handler(makeReq('PUT', '/api/inventory', seed, auth), env3);
+    const br = await handler(makeReq('PATCH', '/api/cards/move-bulk', {
+      moves: [
+        { tcgplayer_id: 'bulk-m', from_box: 'BOX-X', to_box: 'BOX-Y' },
+        { tcgplayer_id: 'bulk-ok', from_box: 'BOX-X', to_box: 'BOX-Z' },
+        { tcgplayer_id: 'bulk-ghost', from_box: 'BOX-X', to_box: 'BOX-Z' }
+      ],
+      reason: 'test-bulk-merge'
+    }, auth), env3);
+    const bj = await br.json();
+    assert('bulk merge succeeds (not 500)', br.status === 200 && bj.ok === true, 'status=' + br.status + ' body=' + JSON.stringify(bj));
+    assert('bulk merge reports moved:2 merged:1', bj.moved === 2 && bj.merged === 1, 'moved=' + bj.moved + ' merged=' + bj.merged);
+    assert('bulk merge skipped ghost with "source not found"', Array.isArray(bj.skipped) && bj.skipped.some(s => s.tcgplayer_id === 'bulk-ghost' && /source not found/.test(s.reason)), 'skipped=' + JSON.stringify(bj.skipped));
+    const bmX = env3.DB._cards.find(c => c.tcgplayer_id === 'bulk-m' && c.box === 'BOX-X');
+    const bmY = env3.DB._cards.find(c => c.tcgplayer_id === 'bulk-m' && c.box === 'BOX-Y');
+    assert('bulk merge: source gone', !bmX, 'X=' + JSON.stringify(bmX));
+    assert('bulk merge: dest qty 5', bmY && bmY.total_quantity === 5, 'Y=' + JSON.stringify(bmY));
+    const plain = env3.DB._cards.find(c => c.tcgplayer_id === 'bulk-ok' && c.box === 'BOX-Z');
+    assert('bulk plain move landed in BOX-Z', !!plain, 'plain=' + JSON.stringify(plain));
   }
 
   return { results };
