@@ -588,6 +588,53 @@ with the same `dbSession` null error in some environments. Reads use plain
 Large single batches (3,000+ statements) can fail or time out. The chunk
 size is `BATCH_CHUNK`.
 
+**Every bulk write path must go through `runBatched`.** In particular,
+`handleQuantitiesPatch` (the pull-commit endpoint) does, because a pull day
+can easily touch more than 100 rows. If you add a new endpoint that builds
+a `statements` array, route it through `runBatched`; do not call
+`db.batch(statements)` directly. The only place a raw `db.batch([a, b])`
+is acceptable is the two-statement atomic pattern described in note 9.
+
+### 9. Single-card writes must batch the state change with its event
+
+`ARCHITECTURE.md` says "events are written in the same D1 batch as the
+state change they describe, so the trail and the inventory never disagree."
+That has to be true for **every** write path, not just bulk ones. In
+particular:
+
+- `handleMove` (single) — `UPDATE cards` + `INSERT events` in one
+  `db.batch([updStmt, evtStmt])`.
+- `handleEdit` — same pattern, after the diff is computed.
+- `handleAdd` — row upsert + `add` event in one batch.
+
+If you add a new single-card endpoint, do the same: prepare both statements,
+pass them as a two-element array to `db.batch()`. A `.run()` followed by
+another `.run()` is the wrong shape: if the second fails, the first is
+already committed and the trail is missing a row.
+
+D1 does not let a batch abort on an earlier statement's result, so in the
+single-move case the event can still be written when the UPDATE matched
+zero rows. That case returns a 404 and the front end re-fetches; the case
+we care about is the inverse (state change with no trail), and the batch
+eliminates it.
+
+### 10. Do not use `INSERT OR IGNORE` on `cards`
+
+`INSERT OR IGNORE` silently drops a row on a `(tcgplayer_id, box)`
+conflict. That is the opposite of what this app wants. Duplicate scans are
+**summed**, not dropped -- see "Duplicate handling" above -- and the same
+rule applies to append, PUT, and add.
+
+Use the upsert form everywhere a card row is inserted:
+
+    INSERT INTO cards (...) VALUES (...)
+    ON CONFLICT (tcgplayer_id, box) DO UPDATE SET
+      total_quantity = COALESCE(total_quantity, 0)
+                     + COALESCE(excluded.total_quantity, 0)
+
+`handleAppend` used `INSERT OR IGNORE` until it was caught and fixed. Do
+not reintroduce it. If you see it in a diff, that is a bug.
+
 ### 4. `raw` column is not written
 
 The `cards` table has a `raw TEXT` column for future use (audit, buy offers,

@@ -315,6 +315,15 @@
                 font-weight: 500;
                 font-size: 12px;
             }
+            .print-section {
+                margin: 10px 0 4px 0;
+                padding: 4px 10px;
+                background: #f0f2f5;
+                border-radius: 6px;
+                font-weight: 700;
+                font-size: 14px;
+                color: #1a1a2e;
+            }
             .print-box-header {
                 background: #f0f2f5;
                 padding: 10px 15px;
@@ -4133,6 +4142,59 @@
 
 
             
+            buildPrintBody(groupedItems, rankOf, colorSectionFor) {
+                // Take the flat sequence from groupResultsForRender (which has
+                // 'order-header', 'group', and 'row' items) and insert
+                // color-section headers between rows within each group.
+                const out = [];
+                let i = 0;
+                while (i < groupedItems.length) {
+                    const item = groupedItems[i];
+                    if (item.kind !== 'row') {
+                        out.push(item);
+                        i++;
+                        continue;
+                    }
+                    // Collect all the row items in this block (until the next
+                    // non-row item).
+                    const rows = [];
+                    let j = i;
+                    while (j < groupedItems.length && groupedItems[j].kind === 'row') {
+                        rows.push(groupedItems[j].row);
+                        j++;
+                    }
+                    // Group by section, sort within section by color rank
+                    // then by name.
+                    const sections = {};
+                    for (const r of rows) {
+                        const sec = colorSectionFor(r);
+                        if (!sections[sec]) sections[sec] = [];
+                        sections[sec].push(r);
+                    }
+                    // Order sections by the minimum rank within each.
+                    const secNames = Object.keys(sections);
+                    secNames.sort(function (a, b) {
+                        const ra = Math.min.apply(null, sections[a].map(rankOf));
+                        const rb = Math.min.apply(null, sections[b].map(rankOf));
+                        if (ra !== rb) return ra - rb;
+                        return a.localeCompare(b);
+                    });
+                    for (const sec of secNames) {
+                        const rs = sections[sec];
+                        rs.sort(function (a, b) {
+                            const ra = rankOf(a);
+                            const rb = rankOf(b);
+                            if (ra !== rb) return ra - rb;
+                            return String(a['Pull Sheet Name'] || a['Clean Name'] || '').localeCompare(String(b['Pull Sheet Name'] || b['Clean Name'] || ''));
+                        });
+                        out.push({ kind: 'section', label: sec, count: rs.length });
+                        for (const r of rs) out.push({ kind: 'row', row: r });
+                    }
+                    i = j;
+                }
+                return out;
+            }
+
             async printPickingList() {
                 const focusedResults = this.getFocusedResults();
                 if (!focusedResults || focusedResults.length === 0) {
@@ -4276,17 +4338,24 @@
                 // Group by the current sort mode (box or order). The print output
                 // mirrors the screen.
                 const groupedItems = this.groupResultsForRender(focusedResults);
+                // Insert color-section headers between rows within each group.
+                // This restores the "White (12)", "Blue (8)" sections.
+                const printItems = this.buildPrintBody(groupedItems, rankOf, colorSectionFor);
 
                 let html = '';
                 let totalPicks = 0;
 
-                for (const item of groupedItems) {
+                for (const item of printItems) {
                     if (item.kind === 'order-header') {
                         html += `<div style="margin:18px 0 8px 0;padding:10px 14px;background:#1a1a2e;color:white;border-radius:6px;font-weight:700;font-size:16px;">${escapeHtml(item.label)}</div>`;
                         continue;
                     }
                     if (item.kind === 'group') {
                         html += `<div class="print-box-header">${escapeHtml(item.label)}</div>`;
+                        continue;
+                    }
+                    if (item.kind === 'section') {
+                        html += `<div class="print-section">${escapeHtml(item.label)} (${item.count})</div>`;
                         continue;
                     }
                     const row = item.row;

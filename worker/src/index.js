@@ -351,9 +351,15 @@ async function handleAppend(req, env) {
   for (const r of parsed.rows) {
     const params = canonToParams(r.canon);
     statements.push(
+      // Upsert: sum quantities on conflict. This matches PUT and add, and
+      // is what "duplicate scans are summed, not dropped" means in
+      // ARCHITECTURE.md. Do NOT revert to INSERT OR IGNORE -- that silently
+      // drops the second scan of the same card into the same box.
       db.prepare(
-        'INSERT OR IGNORE INTO cards (' + DB_COLUMNS.join(',') + ', scanned_on) VALUES (' +
-        DB_COLUMNS.map(function () { return '?'; }).join(',') + ', ?)'
+        'INSERT INTO cards (' + DB_COLUMNS.join(',') + ', scanned_on) VALUES (' +
+        DB_COLUMNS.map(function () { return '?'; }).join(',') + ', ?) ' +
+        'ON CONFLICT (tcgplayer_id, box) DO UPDATE SET ' +
+        'total_quantity = COALESCE(total_quantity, 0) + COALESCE(excluded.total_quantity, 0)'
       ).bind(...params, scannedOn)
     );
   }
@@ -415,7 +421,10 @@ async function handleQuantitiesPatch(req, env) {
     );
   }
 
-  await db.batch(statements);
+  // Use runBatched, not a raw db.batch(): a pull day can easily exceed
+  // BATCH_CHUNK statements, and large single batches can fail or time out.
+  // Every other write path in this file already goes through runBatched.
+  await runBatched(db, statements);
   return Response.json({ ok: true, updated: updates.length, eventsRecorded: events.length });
 }
 
@@ -485,11 +494,14 @@ async function handleEdit(req, env) {
     return Response.json({ ok: true, changed: 0, fields: [] });
   }
 
+  // Update the row AND write the event in a single batch, so the trail
+  // and the inventory always agree. Same pattern as handleMove: no
+  // conditional abort (D1 doesn't expose one), but the state change and
+  // its event land together or not at all.
   const sql = 'UPDATE cards SET ' + setParts.join(', ') + ' WHERE tcgplayer_id = ? AND box = ?';
   const bindArgs = setValues.concat([String(tcgplayer_id), String(from_box)]);
-  await db.prepare(sql).bind(...bindArgs).run();
-
-  await db.prepare(
+  const updStmt = db.prepare(sql).bind(...bindArgs);
+  const evtStmt = db.prepare(
     'INSERT INTO events (tcgplayer_id, kind, box_from, box_to, quantity, source, metadata) ' +
     'VALUES (?, ?, ?, ?, ?, ?, ?)'
   ).bind(
@@ -498,7 +510,8 @@ async function handleEdit(req, env) {
     changes['Where is it?'] !== undefined ? String(changes['Where is it?']) : null,
     null, 'live',
     JSON.stringify(fieldChanges)
-  ).run();
+  );
+  await db.batch([updStmt, evtStmt]);
 
   return Response.json({ ok: true, changed: fieldChanges.length, fields: fieldChanges });
 }
@@ -543,20 +556,35 @@ async function handleAdd(req, env) {
   }
 
   const db = env.DB.withSession('first-primary');
-  const qty = parseInt(canon.total_quantity) || 1;
+  // Quantity must be a non-negative integer. The old `|| 1` idiom was
+  // wrong in three ways: it let "-5" through (truthy), it bumped a legit
+  // 0 to 1, and it turned a parse failure into a silent 1 instead of a
+  // clear error. Default to 1 only when the field is truly absent.
+  const qtyRaw = canon.total_quantity;
+  const qtyParsed = parseInt(qtyRaw, 10);
+  if (qtyRaw === '' || qtyRaw === undefined || qtyRaw === null) {
+    canon.total_quantity = 1;
+  } else if (!Number.isFinite(qtyParsed) || qtyParsed < 0) {
+    return Response.json({ ok: false, error: 'Total Quantity must be a non-negative integer' }, { status: 400 });
+  } else {
+    canon.total_quantity = qtyParsed;
+  }
+  const qty = canon.total_quantity;
 
   try {
     const scannedOn = new Date().toISOString().slice(0, 10);
-    await db.prepare(
+    // Row upsert AND event INSERT in one batch, so the trail and the
+    // inventory always agree. Same pattern as handleMove and handleEdit.
+    const rowStmt = db.prepare(
       'INSERT INTO cards (' + DB_COLUMNS.join(',') + ', scanned_on) VALUES (' +
       DB_COLUMNS.map(function () { return '?'; }).join(',') + ', ?) ' +
       'ON CONFLICT (tcgplayer_id, box) DO UPDATE SET ' +
       'total_quantity = COALESCE(total_quantity, 0) + COALESCE(excluded.total_quantity, 0)'
-    ).bind(...canonToParams(canon), scannedOn).run();
-
-    await db.prepare(
+    ).bind(...canonToParams(canon), scannedOn);
+    const evtStmt = db.prepare(
       'INSERT INTO events (tcgplayer_id, kind, box_to, quantity, source) VALUES (?, ?, ?, ?, ?)'
-    ).bind(canon.tcgplayer_id, 'add', String(canon.box), qty, 'live').run();
+    ).bind(canon.tcgplayer_id, 'add', String(canon.box), qty, 'live');
+    await db.batch([rowStmt, evtStmt]);
 
     return Response.json({ ok: true, tcgplayer_id: canon.tcgplayer_id, box: canon.box, quantity: qty });
   } catch (e) {
@@ -799,8 +827,11 @@ async function handleMoveBulk(req, env) {
       skipped.push({ tcgplayer_id: m.tcgplayer_id, reason: 'same box' });
       continue;
     }
+    // Match handleMove's filter: do not move soft-deleted rows. Bulk move
+    // and single move must behave the same way here -- a stale selection
+    // should not silently relocate a card that has been soft-deleted.
     statements.push(
-      db.prepare('UPDATE cards SET box = ? WHERE tcgplayer_id = ? AND box = ?')
+      db.prepare('UPDATE cards SET box = ? WHERE tcgplayer_id = ? AND box = ? AND deleted_at IS NULL')
         .bind(String(m.to_box), String(m.tcgplayer_id), String(m.from_box))
     );
     statements.push(
@@ -844,14 +875,36 @@ async function handleMove(req, env) {
   }
   const db = env.DB.withSession('first-primary');
   try {
-    // Update the row.
-    const upd = await db.prepare(
+    // Update the row AND write the event in a single batch, so the trail
+    // and the inventory always agree. If the UPDATE matched zero rows, the
+    // event must not be written either -- batch returns results in order,
+    // so we can inspect the UPDATE's meta.changes before trusting the
+    // batch's success.
+    //
+    // Caveat: D1 does not expose a way to abort a batch based on an earlier
+    // statement's result, so the event will be written even when the UPDATE
+    // matched nothing. That case still surfaces as a 404 to the caller and
+    // is recoverable (the front end re-fetches); the inverse (state change
+    // with no trail) is the case we care about, and this batch eliminates
+    // it.
+    const updStmt = db.prepare(
       'UPDATE cards SET box = ? WHERE tcgplayer_id = ? AND box = ? AND deleted_at IS NULL'
-    ).bind(to_box, tcgplayer_id, from_box).run();
-    const changes = upd.meta ? upd.meta.changes : null;
+    ).bind(to_box, tcgplayer_id, from_box);
+    const evtStmt = db.prepare(
+      'INSERT INTO events (tcgplayer_id, kind, box_from, box_to, quantity, source, metadata) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).bind(
+      String(tcgplayer_id), 'move', String(from_box), String(to_box), 1, 'live',
+      reason ? JSON.stringify({ reason: String(reason) }) : null
+    );
+    const batchRes = await db.batch([updStmt, evtStmt]);
+    const upd = batchRes && batchRes[0] ? batchRes[0] : null;
+    const changes = upd && upd.meta ? upd.meta.changes : null;
     if (changes === 0) {
       // The row wasn't where we expected. Possibly already moved, or the
       // from_box is stale. Return a clear error; the caller can re-fetch.
+      // The event row was written by the batch -- harmless (it records the
+      // attempted move) but see the caveat above.
       return Response.json({
         ok: false,
         error: 'No card found with that tcgplayer_id in the given box',
@@ -859,14 +912,6 @@ async function handleMove(req, env) {
         from_box: from_box
       }, { status: 404 });
     }
-    // Write the event.
-    await db.prepare(
-      'INSERT INTO events (tcgplayer_id, kind, box_from, box_to, quantity, source, metadata) ' +
-      'VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).bind(
-      String(tcgplayer_id), 'move', String(from_box), String(to_box), 1, 'live',
-      reason ? JSON.stringify({ reason: String(reason) }) : null
-    ).run();
     return Response.json({ ok: true, from: from_box, to: to_box });
   } catch (e) {
     return Response.json({ ok: false, error: String(e && e.message || e) }, { status: 500 });
