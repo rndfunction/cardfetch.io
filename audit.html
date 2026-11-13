@@ -208,6 +208,12 @@
 <script>
 // Same Worker URL as the main app and admin page.
 const API_BASE = 'https://cardfetch-api.rndfunction.workers.dev';
+// audit-picker.js injects a box dropdown modal and exposes window.AuditPicker.
+// It replaces the free-text prompt() box entry that allowed near-duplicate
+// box codes (81826 vs 081826) to be created by accident.
+</script>
+<script src="audit-picker.js"></script>
+<script>
 const STALE_DAYS = 90;
 const HIGH_COUNT_THRESHOLD = 10;
 const BOX_WARN_UNITS = 800;
@@ -935,32 +941,40 @@ function attachRowActions(container) {
   });
 
   container.querySelectorAll('.move-btn').forEach(function (btn) {
-    btn.addEventListener('click', async function () {
-      const id = btn.getAttribute('data-tcgid');
-      const fromBox = btn.getAttribute('data-box');
-      const toBox = prompt('Move card from ' + fromBox + ' to which box?', '');
-      if (!toBox) return;
-      const trimmed = toBox.trim();
-      if (!trimmed || trimmed === fromBox) return;
-      const key = localStorage.getItem('cardfetch_write_key');
-      if (!key) { alert('No write key stored. Open the admin page and reset it.'); return; }
-      try {
-        const r = await fetch(API_BASE + '/api/cards/move', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', 'X-Write-Key': key },
-          body: JSON.stringify({ tcgplayer_id: id, from_box: fromBox, to_box: trimmed })
+      btn.addEventListener('click', async function () {
+        const id = btn.getAttribute('data-tcgid');
+        const fromBox = btn.getAttribute('data-box');
+        // Dropdown instead of prompt(): prevents near-duplicate box codes
+        // (81826 vs 081826) from being typed by accident.
+        AuditPicker.open({
+          title: 'Move card',
+          subtitle: 'From ' + fromBox,
+          boxList: (data && data.boxTotals ? data.boxTotals.map(function (b) { return b.box; }) : []),
+          excludeBox: fromBox,
+          onPick: async function (chosen) {
+            const trimmed = chosen;
+            if (!trimmed || trimmed === fromBox) return;
+            const key = localStorage.getItem('cardfetch_write_key');
+            if (!key) { alert('No write key stored. Open the admin page and reset it.'); return; }
+            try {
+              const r = await fetch(API_BASE + '/api/cards/move', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'X-Write-Key': key },
+                body: JSON.stringify({ tcgplayer_id: id, from_box: fromBox, to_box: trimmed })
+              });
+              if (!r.ok) {
+                const text = await r.text();
+                setStatus('error', 'Move failed: ' + text);
+                return;
+              }
+              setStatus('success', 'Moved to ' + trimmed);
+              loadAudit();
+            } catch (e) {
+              setStatus('error', 'Move failed: ' + String(e && e.message || e));
+            }
+          }
         });
-        if (!r.ok) {
-          const text = await r.text();
-          setStatus('error', 'Move failed: ' + text);
-          return;
-        }
-        setStatus('success', 'Moved to ' + trimmed);
-        loadAudit();
-      } catch (e) {
-        setStatus('error', 'Move failed: ' + String(e && e.message || e));
-      }
-    });
+      });
   });
 
   container.querySelectorAll('.edit-btn').forEach(function (btn) {
@@ -1081,34 +1095,38 @@ document.getElementById('clearSelectedA').addEventListener('click', function () 
   if (count) count.textContent = '0 selected';
 });
 
-document.getElementById('moveSelectedA').addEventListener('click', async function () {
-  const rows = selectedRows();
-  if (rows.length === 0) { setStatus('error', 'Nothing selected.'); return; }
-  const toBox = prompt('Move ' + rows.length + ' card(s) to which box?', '');
-  if (!toBox) return;
-  const trimmed = toBox.trim();
-  if (!trimmed) return;
-  const key = localStorage.getItem('cardfetch_write_key');
-  if (!key) { alert('No write key stored. Open the admin page and reset it.'); return; }
-  // Group by from_box, call move-bulk.
-  const moves = rows
-    .filter(function (r) { return r.box !== trimmed; })
-    .map(function (r) { return { tcgplayer_id: r.tcgplayer_id, from_box: r.box, to_box: trimmed }; });
-  if (moves.length === 0) { setStatus('error', 'All selected rows are already in ' + trimmed); return; }
-  try {
-    const resp = await fetch(API_BASE + '/api/cards/move-bulk', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', 'X-Write-Key': key },
-      body: JSON.stringify({ moves: moves, reason: 'bulk-audit' })
+  document.getElementById('moveSelectedA').addEventListener('click', async function () {
+    const rows = selectedRows();
+    if (rows.length === 0) { setStatus('error', 'Nothing selected.'); return; }
+    AuditPicker.open({
+      title: 'Move ' + rows.length + ' card(s)',
+      subtitle: 'Pick the destination box',
+      boxList: (data && data.boxTotals ? data.boxTotals.map(function (b) { return b.box; }) : []),
+      onPick: async function (chosen) {
+        const trimmed = chosen;
+        if (!trimmed) return;
+        const key = localStorage.getItem('cardfetch_write_key');
+        if (!key) { alert('No write key stored. Open the admin page and reset it.'); return; }
+        const moves = rows
+          .filter(function (r) { return r.box !== trimmed; })
+          .map(function (r) { return { tcgplayer_id: r.tcgplayer_id, from_box: r.box, to_box: trimmed }; });
+        if (moves.length === 0) { setStatus('error', 'All selected rows are already in ' + trimmed); return; }
+        try {
+          const resp = await fetch(API_BASE + '/api/cards/move-bulk', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'X-Write-Key': key },
+            body: JSON.stringify({ moves: moves, reason: 'bulk-audit' })
+          });
+          if (!resp.ok) { setStatus('error', 'Move failed: ' + (await resp.text())); return; }
+          const data = await resp.json();
+          setStatus('success', 'Moved ' + (data.moved || 0) + ' card(s). ' + ((data.skipped && data.skipped.length) ? data.skipped.length + ' skipped.' : ''));
+          loadAudit();
+        } catch (e) {
+          setStatus('error', 'Move failed: ' + String(e && e.message || e));
+        }
+      }
     });
-    if (!resp.ok) { setStatus('error', 'Move failed: ' + (await resp.text())); return; }
-    const data = await resp.json();
-    setStatus('success', 'Moved ' + (data.moved || 0) + ' card(s). ' + ((data.skipped && data.skipped.length) ? data.skipped.length + ' skipped.' : ''));
-    loadAudit();
-  } catch (e) {
-    setStatus('error', 'Move failed: ' + String(e && e.message || e));
-  }
-});
+  });
 
 document.getElementById('editSelectedA').addEventListener('click', async function () {
   const rows = selectedRows();
